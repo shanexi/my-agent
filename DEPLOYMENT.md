@@ -8,9 +8,25 @@
 
 ## Quick Deploy
 
-### 1. Configure Environment Variables
+### 1. First Time Deploy
 
-Edit `ecosystem.config.cjs` and set your credentials:
+Run the deployment script. It will upload the ecosystem.config.cjs template on first run:
+
+```bash
+./deploy.sh ubuntu@100.97.88.24
+```
+
+The script will fail with a reminder to configure environment variables.
+
+### 2. Configure Environment Variables on VPS
+
+SSH to your VPS and edit the configuration:
+
+```bash
+ssh ubuntu@100.97.88.24 'nano ~/my-agent/ecosystem.config.cjs'
+```
+
+Set your credentials:
 
 ```javascript
 env: {
@@ -27,7 +43,9 @@ env: {
 }
 ```
 
-### 2. Deploy
+Save and exit (Ctrl+X, then Y, then Enter).
+
+### 3. Deploy Again
 
 ```bash
 ./deploy.sh ubuntu@100.97.88.24
@@ -101,15 +119,21 @@ pm2 monit
 
 ## Updates
 
-To deploy updates:
+To deploy code updates:
 
 ```bash
 # Make your changes
-# Then deploy
+# Build and deploy
 ./deploy.sh
 ```
 
-PM2 will automatically restart with zero downtime.
+The script will:
+- Build new code locally
+- Upload only `dist/` and `package.json` files
+- **Skip** `ecosystem.config.cjs` (preserves your VPS credentials)
+- Restart PM2 with zero downtime
+
+Your environment variables on VPS remain unchanged.
 
 ## Troubleshooting
 

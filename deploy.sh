@@ -27,8 +27,15 @@ rsync -avz --delete \
 rsync -avz \
   package.json \
   package-lock.json \
-  ecosystem.config.cjs \
   "$VPS_HOST:$APP_DIR/"
+
+# Only upload ecosystem.config.cjs if it doesn't exist on VPS
+if ssh "$VPS_HOST" "[ ! -f $APP_DIR/ecosystem.config.cjs ]"; then
+  echo "📝 Uploading ecosystem.config.cjs template (first time only)..."
+  rsync -avz ecosystem.config.cjs "$VPS_HOST:$APP_DIR/"
+else
+  echo "⏭️  Skipping ecosystem.config.cjs (already exists on VPS)"
+fi
 
 echo "✅ Files uploaded"
 
