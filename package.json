@@ -29,10 +29,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.59",
     "@hono/node-server": "^1.19.6",
-    "dotenv": "^17.2.3",
-    "effect": "^3.19.8",
     "hono": "^4.10.7",
-    "telegraf": "^4.16.3",
     "zod": "^4.1.13"
   }
 }

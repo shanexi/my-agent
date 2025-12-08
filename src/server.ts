@@ -164,7 +164,7 @@ app.post("/webhook", async (c) => {
 
     const message = update.message;
     const chatId = message.chat.id;
-    const text = message.text;
+    const text = message.text!; // Already validated above
 
     console.log(`Received message from ${chatId}: ${text}`);
 

@@ -43,9 +43,7 @@ Copy `.env.example` to `.env` and configure as needed.
 
 ### Code Structure
 - `src/server.ts` - Hono web server with webhook endpoint (main entry point)
-- `src/index.ts` - CLI demo for testing Claude Agent
-- `src/agent.ts` - Claude Agent SDK wrapper
-- `src/telegram.ts` - Telegram API utilities (sendMessage, sendChatAction)
+  - All Telegram and Claude Agent logic is self-contained in this file
 - All TypeScript code compiles to `dist/` directory
 
 ### Telegram Bot Architecture

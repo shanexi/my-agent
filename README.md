@@ -117,10 +117,7 @@ ngrok http 3000
 
 ```
 ├── src/
-│   ├── server.ts           # Hono web server (main entry)
-│   ├── index.ts            # CLI demo
-│   ├── agent.ts            # Claude Agent wrapper
-│   └── telegram.ts         # Telegram API utilities
+│   └── server.ts           # Hono web server (main entry)
 ├── .env                    # Environment configuration
 ├── package.json            # Dependencies and scripts
 └── tsconfig.json           # TypeScript configuration
