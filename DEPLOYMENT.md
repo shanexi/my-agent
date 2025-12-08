@@ -13,7 +13,7 @@
 Run the deployment script. It will upload the ecosystem.config.cjs template on first run:
 
 ```bash
-./deploy.sh ubuntu@100.97.88.24
+./deploy.sh ubuntu@100.103.204.72
 ```
 
 The script will fail with a reminder to configure environment variables.
@@ -23,7 +23,7 @@ The script will fail with a reminder to configure environment variables.
 SSH to your VPS and edit the configuration:
 
 ```bash
-ssh ubuntu@100.97.88.24 'nano ~/my-agent/ecosystem.config.cjs'
+ssh ubuntu@100.103.204.72 'nano ~/my-agent/ecosystem.config.cjs'
 ```
 
 Set your credentials:
@@ -48,7 +48,7 @@ Save and exit (Ctrl+X, then Y, then Enter).
 ### 3. Deploy Again
 
 ```bash
-./deploy.sh ubuntu@100.97.88.24
+./deploy.sh ubuntu@100.103.204.72
 ```
 
 The script will:
@@ -99,7 +99,7 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 
 ```bash
 # On VPS
-ssh ubuntu@100.97.88.24
+ssh ubuntu@100.103.204.72
 
 # Check status
 pm2 status
@@ -139,22 +139,22 @@ Your environment variables on VPS remain unchanged.
 
 ### Check if app is running
 ```bash
-ssh ubuntu@100.97.88.24 'pm2 status'
+ssh ubuntu@100.103.204.72 'pm2 status'
 ```
 
 ### View recent logs
 ```bash
-ssh ubuntu@100.97.88.24 'pm2 logs my-agent --lines 50'
+ssh ubuntu@100.103.204.72 'pm2 logs my-agent --lines 50'
 ```
 
 ### Restart app
 ```bash
-ssh ubuntu@100.97.88.24 'pm2 restart my-agent'
+ssh ubuntu@100.103.204.72 'pm2 restart my-agent'
 ```
 
 ### Check environment variables
 ```bash
-ssh ubuntu@100.97.88.24 'pm2 env my-agent'
+ssh ubuntu@100.103.204.72 'pm2 env my-agent'
 ```
 
 ### Test webhook locally

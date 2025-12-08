@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-VPS_HOST="${1:-ubuntu@100.97.88.24}"
+VPS_HOST="${1:-ubuntu@100.103.204.72}"
 APP_DIR="~/my-agent"
 APP_NAME="my-agent"
 
