@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TypeScript-based agent project using Effect for functional programming patterns and the Claude Agent SDK for AI interactions. The project includes a Telegram bot that uses webhook-based serverless deployment on Vercel.
+TypeScript-based agent project using Effect for functional programming patterns and the Claude Agent SDK for AI interactions. The project includes a Telegram bot with a Hono web server for flexible deployment.
 
 ## Development Commands
 
@@ -21,16 +21,15 @@ npm run start
 
 ## Environment Configuration
 
-This project requires a `.env` file for AWS Bedrock and Telegram configuration. Environment variables are loaded using Node.js native `--env-file` flag (no dotenv package needed).
+This project requires a `.env` file for AWS Bedrock and Telegram configuration. Environment variables are loaded using Node.js native `--env-file` flag.
 
 Required environment variables:
 - `CLAUDE_CODE_USE_BEDROCK=1` - Enable AWS Bedrock
 - `ANTHROPIC_MODEL` - The Bedrock model ID (e.g., `us.anthropic.claude-sonnet-4-5-20250929-v1:0`)
 - `TELEGRAM_BOT_TOKEN` - Telegram bot token from @BotFather
+- `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` - AWS credentials
 
 Copy `.env.example` to `.env` and configure as needed.
-
-For Vercel deployment, set environment variables in the Vercel dashboard.
 
 ## Architecture
 
@@ -39,33 +38,33 @@ For Vercel deployment, set environment variables in the Vercel dashboard.
 - **Effect** - Functional effect system for type-safe async operations
 - **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`) - Uses `unstable_v2_prompt` API for Claude interactions
 - **AWS Bedrock** - Claude API access via AWS infrastructure
-- **Telegraf** - Telegram bot framework
-- **Vercel** - Serverless deployment platform
+- **Hono** - Fast, lightweight web framework
+- **@hono/node-server** - Node.js adapter for Hono
 
 ### Code Structure
-- `src/index.ts` - Main entry point demonstrating Effect-based agent program
-- `src/telegram.ts` - Telegram API utilities (sendMessage, sendChatAction)
+- `src/server.ts` - Hono web server with webhook endpoint (main entry point)
+- `src/index.ts` - CLI demo for testing Claude Agent
 - `src/agent.ts` - Claude Agent SDK wrapper
-- `api/webhook.ts` - Vercel serverless function for Telegram webhook
+- `src/telegram.ts` - Telegram API utilities (sendMessage, sendChatAction)
 - All TypeScript code compiles to `dist/` directory
 
 ### Telegram Bot Architecture
 
-**Webhook Pattern (Serverless-friendly)**:
+**Webhook Pattern with Hono:**
 ```
-User message -> Telegram -> POST /api/webhook
+User message -> Telegram -> POST /webhook (Hono server)
                               |
-                              |- Return 200 OK immediately
-                              |
-                              |- Async: Send typing indicator
-                              |- Async: Call Claude Agent
-                              |- Async: Send response via Telegram API
+                              |- Send typing indicator
+                              |- Call Claude Agent
+                              |- Send response via Telegram API
+                              |- Return 200 OK
 ```
 
-This approach avoids serverless timeout issues by:
-1. Responding to webhook immediately (< 1s)
-2. Processing message asynchronously in background
-3. Sending response directly via Telegram API (not webhook response)
+Key points:
+- Hono server runs as a standard Node.js web server
+- Webhook processes messages synchronously (waits for completion)
+- Can be deployed to any Node.js hosting (Railway, Fly.io, VPS, etc.)
+- No serverless timeout issues
 
 ### Effect Pattern Usage
 
@@ -91,38 +90,48 @@ Uses the V2 unstable API:
 
 ## Deployment
 
-### Vercel Deployment
+This is a standard Node.js web server that can be deployed anywhere:
 
+### Railway
 ```bash
-# Install Vercel CLI
-npm i -g vercel
+railway login
+railway init
+railway up
+```
 
-# Deploy to Vercel
-vercel
+### Fly.io
+```bash
+fly launch
+fly secrets set TELEGRAM_BOT_TOKEN=...
+# Set other secrets
+```
 
-# Set environment variables
-vercel env add TELEGRAM_BOT_TOKEN
-vercel env add CLAUDE_CODE_USE_BEDROCK
-vercel env add ANTHROPIC_MODEL
-vercel env add AWS_REGION
-vercel env add AWS_ACCESS_KEY_ID
-vercel env add AWS_SECRET_ACCESS_KEY
+### Traditional VPS
+```bash
+npm run build
+pm2 start npm --name "my-agent" -- start
+```
+
+### Local Testing with ngrok
+```bash
+ngrok http 3000
+# Set Telegram webhook to ngrok URL
 ```
 
 ### Setting up Telegram Webhook
 
-After deploying to Vercel, set the webhook URL:
+After deploying, set the webhook URL:
 
 ```bash
 curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://your-vercel-domain.vercel.app/api/webhook"}'
+  -d '{"url": "https://your-domain.com/webhook"}'
 ```
 
 ## Important Notes
 
-- The project uses Node.js native `--env-file` support, not the dotenv package (dotenv is installed but unused)
-- Zod version conflict exists between project (v4) and SDK requirement (v3.24.1) - currently using `--legacy-peer-deps` workaround
-- All scripts must use `--env-file=.env` flag to load environment variables
-- Vercel functions have 60s timeout on Pro plan, 10s on Hobby plan
-- Async processing allows Claude API calls to take longer without webhook timeout
+- The project uses Node.js native `--env-file` support, not the dotenv package
+- Zod version conflict exists between project (v4) and SDK requirement (v3.24.1) - using `--legacy-peer-deps` workaround
+- All scripts use `--env-file=.env` flag to load environment variables
+- Server defaults to port 3000 (configurable via `PORT` env var)
+- Hono provides excellent performance and small bundle size

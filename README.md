@@ -1,14 +1,14 @@
 # my-agent
 
-A TypeScript-based AI agent powered by Claude via AWS Bedrock, with Telegram bot integration deployed on Vercel.
+A TypeScript-based AI agent powered by Claude via AWS Bedrock, with Telegram bot integration.
 
 ## Features
 
 - 🤖 Claude Agent SDK integration via AWS Bedrock
 - 💬 Telegram bot with webhook support
-- ⚡ Serverless deployment on Vercel
+- 🌐 Hono web server for flexible deployment
 - 🔧 TypeScript with Effect for functional programming
-- 🚀 Asynchronous message processing (no timeout issues)
+- 🚀 Deploy anywhere (Railway, Fly.io, VPS, etc.)
 
 ## Quick Start
 
@@ -17,11 +17,11 @@ A TypeScript-based AI agent powered by Claude via AWS Bedrock, with Telegram bot
 - Node.js 18+
 - Telegram Bot Token (from [@BotFather](https://t.me/botfather))
 - AWS Bedrock access with Claude model enabled
-- Vercel account (for deployment)
 
 ### Local Development
 
 1. Clone the repository
+
 2. Install dependencies:
    ```bash
    npm install
@@ -38,59 +38,92 @@ A TypeScript-based AI agent powered by Claude via AWS Bedrock, with Telegram bot
    npm run dev
    ```
 
-### Deployment to Vercel
+   Server will start on http://localhost:3000
 
-1. Install Vercel CLI:
+5. Test the server:
    ```bash
-   npm i -g vercel
+   curl http://localhost:3000/
+   ```
+
+### Setting up Telegram Webhook
+
+Set your webhook to point to your server:
+
+```bash
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://your-domain.com/webhook"}'
+```
+
+For local testing with ngrok:
+
+```bash
+ngrok http 3000
+# Then set webhook to: https://your-ngrok-url.ngrok.io/webhook
+```
+
+## Deployment
+
+### Railway
+
+1. Install Railway CLI:
+   ```bash
+   npm i -g @railway/cli
    ```
 
 2. Deploy:
    ```bash
-   vercel
+   railway login
+   railway init
+   railway up
    ```
 
-3. Set environment variables in Vercel dashboard:
-   - `TELEGRAM_BOT_TOKEN`
-   - `CLAUDE_CODE_USE_BEDROCK=1`
-   - `ANTHROPIC_MODEL`
-   - `AWS_ACCESS_KEY_ID`
-   - `AWS_SECRET_ACCESS_KEY`
-   - `AWS_REGION`
+3. Set environment variables in Railway dashboard
 
-4. Set Telegram webhook:
+### Fly.io
+
+1. Install flyctl:
    ```bash
-   curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
-     -H "Content-Type: application/json" \
-     -d '{"url": "https://your-vercel-domain.vercel.app/api/webhook"}'
+   curl -L https://fly.io/install.sh | sh
    ```
 
-## How It Works
+2. Deploy:
+   ```bash
+   fly launch
+   fly secrets set TELEGRAM_BOT_TOKEN=your-token
+   fly secrets set CLAUDE_CODE_USE_BEDROCK=1
+   fly secrets set ANTHROPIC_MODEL=your-model-id
+   fly secrets set AWS_ACCESS_KEY_ID=your-key
+   fly secrets set AWS_SECRET_ACCESS_KEY=your-secret
+   fly secrets set AWS_REGION=us-west-2
+   ```
 
-The bot uses a serverless-friendly webhook pattern:
+### Traditional VPS
 
-1. User sends message to Telegram bot
-2. Telegram POSTs to `/api/webhook`
-3. Function returns 200 OK immediately
-4. Message is processed asynchronously:
-   - Send typing indicator
-   - Call Claude Agent SDK
-   - Send response via Telegram API
+1. Build the project:
+   ```bash
+   npm run build
+   ```
 
-This avoids serverless timeout issues while providing real-time responses.
+2. Run with PM2:
+   ```bash
+   npm install -g pm2
+   pm2 start npm --name "my-agent" -- start
+   pm2 save
+   pm2 startup
+   ```
 
 ## Project Structure
 
 ```
-├── api/
-│   └── webhook.ts          # Vercel serverless function
 ├── src/
+│   ├── server.ts           # Hono web server (main entry)
 │   ├── index.ts            # CLI demo
 │   ├── agent.ts            # Claude Agent wrapper
 │   └── telegram.ts         # Telegram API utilities
-├── vercel.json             # Vercel configuration
-├── tsconfig.json           # TypeScript configuration
-└── CLAUDE.md               # Development guide
+├── .env                    # Environment configuration
+├── package.json            # Dependencies and scripts
+└── tsconfig.json           # TypeScript configuration
 ```
 
 ## Environment Variables
@@ -102,7 +135,26 @@ This avoids serverless timeout issues while providing real-time responses.
 | `ANTHROPIC_MODEL` | Bedrock model ID | Yes |
 | `AWS_ACCESS_KEY_ID` | AWS credentials | Yes |
 | `AWS_SECRET_ACCESS_KEY` | AWS credentials | Yes |
-| `AWS_REGION` | AWS region (e.g., `us-east-1`) | No |
+| `AWS_REGION` | AWS region (e.g., `us-west-2`) | Yes |
+| `PORT` | Server port (default: `3000`) | No |
+
+## Development
+
+```bash
+# Run development server with hot reload
+npm run dev
+
+# Build TypeScript to JavaScript
+npm run build
+
+# Run compiled code
+npm run start
+```
+
+## API Endpoints
+
+- `GET /` - Health check
+- `POST /webhook` - Telegram webhook endpoint
 
 ## License
 
