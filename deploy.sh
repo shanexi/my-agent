@@ -1,16 +1,22 @@
 #!/bin/bash
 
 # Deployment script for my-agent to VPS
-# Usage: ./deploy.sh [VPS_HOST]
+# Usage: ./deploy.sh [VPS_HOST] [SSH_KEY]
 
 set -e
 
 # Configuration
 VPS_HOST="${1:-ubuntu@100.103.204.72}"
+SSH_KEY="${2:-$HOME/shane_02.pem}"
 APP_DIR="~/my-agent"
 APP_NAME="my-agent"
 
+# SSH command wrapper
+SSH_CMD="ssh -i $SSH_KEY"
+RSYNC_SSH="ssh -i $SSH_KEY"
+
 echo "🚀 Deploying to $VPS_HOST..."
+echo "🔑 Using SSH key: $SSH_KEY"
 
 # Step 1: Build locally
 echo "📦 Building application..."
@@ -18,21 +24,23 @@ npm run build
 
 # Step 2: Upload production files only
 echo "📤 Uploading production files to VPS..."
-ssh "$VPS_HOST" "mkdir -p $APP_DIR/dist"
+$SSH_CMD "$VPS_HOST" "mkdir -p $APP_DIR/dist"
 
 rsync -avz --delete \
+  -e "$RSYNC_SSH" \
   dist/ \
   "$VPS_HOST:$APP_DIR/dist/"
 
 rsync -avz \
+  -e "$RSYNC_SSH" \
   package.json \
   package-lock.json \
   "$VPS_HOST:$APP_DIR/"
 
 # Only upload ecosystem.config.cjs if it doesn't exist on VPS
-if ssh "$VPS_HOST" "[ ! -f $APP_DIR/ecosystem.config.cjs ]"; then
+if $SSH_CMD "$VPS_HOST" "[ ! -f $APP_DIR/ecosystem.config.cjs ]"; then
   echo "📝 Uploading ecosystem.config.cjs template (first time only)..."
-  rsync -avz ecosystem.config.cjs "$VPS_HOST:$APP_DIR/"
+  rsync -avz -e "$RSYNC_SSH" ecosystem.config.cjs "$VPS_HOST:$APP_DIR/"
 else
   echo "⏭️  Skipping ecosystem.config.cjs (already exists on VPS)"
 fi
@@ -41,7 +49,7 @@ echo "✅ Files uploaded"
 
 # Step 3: Install dependencies and setup PM2
 echo "📥 Installing dependencies on VPS..."
-ssh "$VPS_HOST" bash << 'ENDSSH'
+$SSH_CMD "$VPS_HOST" bash << 'ENDSSH'
 cd ~/my-agent
 
 # Create logs directory
@@ -69,7 +77,7 @@ if grep -q "YOUR_" ecosystem.config.cjs; then
   echo "  - AWS_SECRET_ACCESS_KEY"
   echo "  - TELEGRAM_BOT_TOKEN"
   echo ""
-  echo "Run: ssh ubuntu@100.97.88.24 'nano ~/my-agent/ecosystem.config.cjs'"
+  echo "Run: ssh -i ~/shane_02.pem ubuntu@100.103.204.72 'nano ~/my-agent/ecosystem.config.cjs'"
   exit 1
 fi
 
@@ -106,10 +114,10 @@ echo ""
 echo "🎉 Deployment complete!"
 echo ""
 echo "Useful commands:"
-echo "  ssh $VPS_HOST 'pm2 status'           # Check status"
-echo "  ssh $VPS_HOST 'pm2 logs my-agent'    # View logs"
-echo "  ssh $VPS_HOST 'pm2 restart my-agent' # Restart app"
-echo "  ssh $VPS_HOST 'pm2 stop my-agent'    # Stop app"
+echo "  ssh -i $SSH_KEY $VPS_HOST 'pm2 status'           # Check status"
+echo "  ssh -i $SSH_KEY $VPS_HOST 'pm2 logs my-agent'    # View logs"
+echo "  ssh -i $SSH_KEY $VPS_HOST 'pm2 restart my-agent' # Restart app"
+echo "  ssh -i $SSH_KEY $VPS_HOST 'pm2 stop my-agent'    # Stop app"
 echo ""
 echo "Next steps:"
 echo "  1. Configure Nginx to proxy port 3000"
