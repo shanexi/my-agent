@@ -5,6 +5,7 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { unstable_v2_prompt } from "@anthropic-ai/claude-agent-sdk";
+import { Effect, Console, Schedule } from "effect";
 
 const app = new Hono();
 
@@ -31,58 +32,97 @@ interface TelegramUpdate {
 }
 
 /**
- * Send a message to Telegram chat
+ * Send a message to Telegram chat with timeout and retry logic using Effect
  */
 async function sendMessage(chatId: number, text: string): Promise<void> {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const sendMessageEffect = Effect.gen(function* () {
+    // Get bot token
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      yield* Effect.fail(new Error("TELEGRAM_BOT_TOKEN is not configured"));
+    }
 
-  if (!botToken) {
-    throw new Error("TELEGRAM_BOT_TOKEN is not configured");
-  }
+    const url = `${TELEGRAM_API_BASE}/bot${botToken}/sendMessage`;
 
-  const url = `${TELEGRAM_API_BASE}/bot${botToken}/sendMessage`;
+    // Send request with timeout and retry
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: text,
+          }),
+        }),
+      catch: (error: unknown) => new Error(`Fetch failed: ${error}`),
+    }).pipe(
+      Effect.timeout("10 seconds"),
+      Effect.retry(
+        Schedule.exponential("1 second").pipe(
+          Schedule.compose(Schedule.recurs(2)) // 3 total attempts (1 initial + 2 retries)
+        )
+      ),
+      Effect.tapError((error: unknown) =>
+        Console.error(`Failed to send message: ${error}`)
+      )
+    );
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: text,
-    }),
+    // Check response status
+    if (!response.ok) {
+      const errorText = yield* Effect.tryPromise(() => response.text());
+      yield* Effect.fail(new Error(`Telegram API error: ${errorText}`));
+    }
   });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Telegram API error: ${error}`);
-  }
+  // Run the Effect and convert to Promise
+  await Effect.runPromise(sendMessageEffect);
 }
 
 /**
- * Send a chat action (e.g., "typing") to show bot is processing
+ * Send a chat action (e.g., "typing") to show bot is processing using Effect
  */
 async function sendChatAction(
   chatId: number,
   action: "typing" = "typing"
 ): Promise<void> {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const sendChatActionEffect = Effect.gen(function* () {
+    // Get bot token
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      return; // Silently fail for non-critical action
+    }
 
-  if (!botToken) {
-    return; // Silently fail for non-critical action
-  }
+    const url = `${TELEGRAM_API_BASE}/bot${botToken}/sendChatAction`;
 
-  const url = `${TELEGRAM_API_BASE}/bot${botToken}/sendChatAction`;
+    // Send request with timeout
+    yield* Effect.tryPromise({
+      try: () =>
+        fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            chat_id: chatId,
+            action: action,
+          }),
+        }),
+      catch: (error: unknown) => new Error(`Failed to send chat action: ${error}`),
+    }).pipe(
+      Effect.timeout("5 seconds"),
+      Effect.catchAll((error: unknown) =>
+        // Silently fail for non-critical action
+        Console.error(`Chat action error: ${error}`).pipe(Effect.as(undefined))
+      )
+    );
+  });
 
-  await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      chat_id: chatId,
-      action: action,
-    }),
+  // Run the Effect and convert to Promise, catching any errors
+  await Effect.runPromise(sendChatActionEffect).catch(() => {
+    // Silently fail for non-critical action
   });
 }
 
