@@ -31,6 +31,81 @@ interface TelegramUpdate {
   message?: TelegramMessage;
 }
 
+interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+}
+
+interface ProcessedMessage {
+  text: string;
+  usage?: TokenUsage;
+  modelName: string;
+}
+
+/**
+ * Model pricing configuration (AWS Bedrock pricing per 1M tokens)
+ */
+interface ModelPricing {
+  input: number;
+  output: number;
+}
+
+const MODEL_PRICING: Record<string, ModelPricing> = {
+  // Claude Sonnet 4.5
+  "us.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.0, output: 15.0 },
+  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
+
+  // Claude Opus 4
+  "us.anthropic.claude-opus-4-20250514-v1:0": { input: 15.0, output: 75.0 },
+  "claude-opus-4-20250514": { input: 15.0, output: 75.0 },
+
+  // Claude Haiku 4
+  "us.anthropic.claude-haiku-4-20250514-v1:0": { input: 0.8, output: 4.0 },
+  "claude-haiku-4-20250514": { input: 0.8, output: 4.0 },
+};
+
+/**
+ * Get pricing for a model (defaults to Sonnet 4.5 pricing)
+ */
+const getModelPricing = (modelName: string): ModelPricing => {
+  return MODEL_PRICING[modelName] || { input: 3.0, output: 15.0 };
+};
+
+/**
+ * Calculate cost based on token usage and model
+ */
+const calculateCost = (usage: TokenUsage, modelName: string): number => {
+  const pricing = getModelPricing(modelName);
+  const inputCost = (usage.input_tokens / 1_000_000) * pricing.input;
+  const outputCost = (usage.output_tokens / 1_000_000) * pricing.output;
+  return inputCost + outputCost;
+};
+
+/**
+ * Get a short display name for the model
+ */
+const getModelDisplayName = (modelName: string): string => {
+  if (modelName.includes("sonnet")) return "Sonnet 4.5";
+  if (modelName.includes("opus")) return "Opus 4";
+  if (modelName.includes("haiku")) return "Haiku 4";
+  return modelName;
+};
+
+/**
+ * Format cost information for display (simple version)
+ */
+const formatCostInfo = (usage: TokenUsage, modelName: string): string => {
+  const cost = calculateCost(usage, modelName);
+  const pricing = getModelPricing(modelName);
+  const displayName = getModelDisplayName(modelName);
+
+  return `\n\n━━━━━━━━━━━━━━━━
+🤖 ${displayName}
+💰 Cost: $${cost.toFixed(6)}
+📊 Tokens: ${usage.input_tokens.toLocaleString()} → ${usage.output_tokens.toLocaleString()}
+💵 Rate: $${pricing.input}/M in, $${pricing.output}/M out`;
+};
+
 /**
  * Send a message to Telegram chat with timeout and retry logic
  */
@@ -131,11 +206,25 @@ const processMessage = (message: string) =>
 
     // Handle both success and error responses
     if (result.subtype === "success") {
-      return result.result;
+      const processedMessage: ProcessedMessage = {
+        text: result.result,
+        modelName: modelName,
+        usage: result.usage
+          ? {
+              input_tokens: result.usage.input_tokens,
+              output_tokens: result.usage.output_tokens,
+            }
+          : undefined,
+      };
+      return processedMessage;
     } else {
       const errors =
         "errors" in result ? result.errors.join("; ") : "Unknown error";
-      return `处理消息时出现错误: ${errors}`;
+      return {
+        text: `处理消息时出现错误: ${errors}`,
+        modelName: modelName,
+        usage: undefined,
+      };
     }
   });
 
@@ -151,9 +240,14 @@ const processAndRespond = (chatId: number, text: string) =>
     yield* Console.log("Processing with Claude Agent...");
     const response = yield* processMessage(text);
 
-    // Step 3: Send response back to user
-    yield* Console.log(`Sending response to ${chatId}: ${response.substring(0, 50)}...`);
-    yield* sendMessage(chatId, response);
+    // Step 3: Append cost info to response text
+    const responseText = response.usage
+      ? response.text + formatCostInfo(response.usage, response.modelName)
+      : response.text;
+
+    // Step 4: Send response back to user
+    yield* Console.log(`Sending response to ${chatId}: ${response.text.substring(0, 50)}...`);
+    yield* sendMessage(chatId, responseText);
 
     yield* Console.log("Message processed successfully");
   }).pipe(
