@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build)",
+      "Bash(./deploy.sh)",
+      "Bash(ssh -i ~/.ssh/my-server-key ubuntu@100.97.88.24 'pm2 logs my-agent --lines 0 --nostream')"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
