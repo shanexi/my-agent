@@ -32,10 +32,10 @@ interface TelegramUpdate {
 }
 
 /**
- * Send a message to Telegram chat with timeout and retry logic using Effect
+ * Send a message to Telegram chat with timeout and retry logic
  */
-async function sendMessage(chatId: number, text: string): Promise<void> {
-  const sendMessageEffect = Effect.gen(function* () {
+const sendMessage = (chatId: number, text: string) =>
+  Effect.gen(function* () {
     // Get bot token
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (!botToken) {
@@ -77,18 +77,11 @@ async function sendMessage(chatId: number, text: string): Promise<void> {
     }
   });
 
-  // Run the Effect and convert to Promise
-  await Effect.runPromise(sendMessageEffect);
-}
-
 /**
- * Send a chat action (e.g., "typing") to show bot is processing using Effect
+ * Send a chat action (e.g., "typing") to show bot is processing
  */
-async function sendChatAction(
-  chatId: number,
-  action: "typing" = "typing"
-): Promise<void> {
-  const sendChatActionEffect = Effect.gen(function* () {
+const sendChatAction = (chatId: number, action: "typing" = "typing") =>
+  Effect.gen(function* () {
     // Get bot token
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (!botToken) {
@@ -120,22 +113,20 @@ async function sendChatAction(
     );
   });
 
-  // Run the Effect and convert to Promise, catching any errors
-  await Effect.runPromise(sendChatActionEffect).catch(() => {
-    // Silently fail for non-critical action
-  });
-}
-
 /**
  * Process a message using Claude Agent
  */
-async function processMessage(message: string): Promise<string> {
-  const modelName =
-    process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+const processMessage = (message: string) =>
+  Effect.gen(function* () {
+    const modelName =
+      process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
 
-  try {
-    const result = await unstable_v2_prompt(message, {
-      model: modelName,
+    const result = yield* Effect.tryPromise({
+      try: () => unstable_v2_prompt(message, { model: modelName }),
+      catch: (error: unknown) => {
+        console.error("Claude Agent error:", error);
+        return new Error("抱歉，处理您的消息时出现了错误。请稍后再试。");
+      },
     });
 
     // Handle both success and error responses
@@ -146,43 +137,39 @@ async function processMessage(message: string): Promise<string> {
         "errors" in result ? result.errors.join("; ") : "Unknown error";
       return `处理消息时出现错误: ${errors}`;
     }
-  } catch (error) {
-    console.error("Claude Agent error:", error);
-    return "抱歉，处理您的消息时出现了错误。请稍后再试。";
-  }
-}
+  });
 
 /**
  * Process message and send response
  */
-async function processMessageAsync(
-  chatId: number,
-  text: string
-): Promise<void> {
-  try {
+const processAndRespond = (chatId: number, text: string) =>
+  Effect.gen(function* () {
     // Step 1: Send typing indicator
-    await sendChatAction(chatId, "typing");
+    yield* sendChatAction(chatId, "typing");
 
     // Step 2: Process message with Claude Agent
-    console.log("Processing with Claude Agent...");
-    const response = await processMessage(text);
+    yield* Console.log("Processing with Claude Agent...");
+    const response = yield* processMessage(text);
 
     // Step 3: Send response back to user
-    console.log(`Sending response to ${chatId}: ${response.substring(0, 50)}...`);
-    await sendMessage(chatId, response);
+    yield* Console.log(`Sending response to ${chatId}: ${response.substring(0, 50)}...`);
+    yield* sendMessage(chatId, response);
 
-    console.log("Message processed successfully");
-  } catch (error) {
-    console.error("Error in async processing:", error);
+    yield* Console.log("Message processed successfully");
+  }).pipe(
+    Effect.catchAll((error: unknown) =>
+      Effect.gen(function* () {
+        yield* Console.error("Error in processing:", error);
 
-    // Try to send error message to user
-    try {
-      await sendMessage(chatId, "抱歉，处理您的消息时出现了错误。请稍后再试。");
-    } catch (sendError) {
-      console.error("Failed to send error message:", sendError);
-    }
-  }
-}
+        // Try to send error message to user
+        yield* sendMessage(chatId, "抱歉，处理您的消息时出现了错误。请稍后再试。").pipe(
+          Effect.catchAll((sendError: unknown) =>
+            Console.error("Failed to send error message:", sendError)
+          )
+        );
+      })
+    )
+  );
 
 // Health check endpoint
 app.get("/", (c) => {
@@ -209,13 +196,9 @@ app.post("/webhook", async (c) => {
     console.log(`Received message from ${chatId}: ${text}`);
 
     // Process message (wait for completion)
-    try {
-      await processMessageAsync(chatId, text);
-      return c.json({ ok: true });
-    } catch (error) {
-      console.error("Error processing message:", error);
-      return c.json({ ok: true });
-    }
+    await Effect.runPromise(processAndRespond(chatId, text));
+
+    return c.json({ ok: true });
   } catch (error) {
     console.error("Webhook error:", error);
     return c.json({ ok: true });
