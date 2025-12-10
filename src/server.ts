@@ -4,12 +4,21 @@
 
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { unstable_v2_prompt } from "@anthropic-ai/claude-agent-sdk";
+import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
 import { Effect, Console, Schedule } from "effect";
 
 const app = new Hono();
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
+
+/**
+ * Initialize Anthropic Bedrock client
+ */
+const anthropic = new AnthropicBedrock({
+  awsRegion: process.env.AWS_REGION || "us-west-2",
+  awsAccessKey: process.env.AWS_ACCESS_KEY_ID,
+  awsSecretKey: process.env.AWS_SECRET_ACCESS_KEY,
+});
 
 interface TelegramMessage {
   message_id: number;
@@ -189,43 +198,43 @@ const sendChatAction = (chatId: number, action: "typing" = "typing") =>
   });
 
 /**
- * Process a message using Claude Agent
+ * Process a message using Claude via Bedrock
  */
 const processMessage = (message: string) =>
   Effect.gen(function* () {
     const modelName =
-      process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+      process.env.ANTHROPIC_MODEL ||
+      "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 
     const result = yield* Effect.tryPromise({
-      try: () => unstable_v2_prompt(message, { model: modelName }),
+      try: () =>
+        anthropic.messages.create({
+          model: modelName,
+          max_tokens: 8192,
+          messages: [{ role: "user", content: message }],
+        }),
       catch: (error: unknown) => {
-        console.error("Claude Agent error:", error);
+        console.error("Claude API error:", error);
         return new Error("抱歉，处理您的消息时出现了错误。请稍后再试。");
       },
     });
 
-    // Handle both success and error responses
-    if (result.subtype === "success") {
-      const processedMessage: ProcessedMessage = {
-        text: result.result,
-        modelName: modelName,
-        usage: result.usage
-          ? {
-              input_tokens: result.usage.input_tokens,
-              output_tokens: result.usage.output_tokens,
-            }
-          : undefined,
-      };
-      return processedMessage;
-    } else {
-      const errors =
-        "errors" in result ? result.errors.join("; ") : "Unknown error";
-      return {
-        text: `处理消息时出现错误: ${errors}`,
-        modelName: modelName,
-        usage: undefined,
-      };
-    }
+    // Extract text from response content
+    const textContent = result.content.find((block) => block.type === "text");
+    const responseText = textContent && "text" in textContent ? textContent.text : "无法生成响应";
+
+    const processedMessage: ProcessedMessage = {
+      text: responseText,
+      modelName: modelName,
+      usage: result.usage
+        ? {
+            input_tokens: result.usage.input_tokens,
+            output_tokens: result.usage.output_tokens,
+          }
+        : undefined,
+    };
+
+    return processedMessage;
   });
 
 /**
@@ -236,8 +245,8 @@ const processAndRespond = (chatId: number, text: string) =>
     // Step 1: Send typing indicator
     yield* sendChatAction(chatId, "typing");
 
-    // Step 2: Process message with Claude Agent
-    yield* Console.log("Processing with Claude Agent...");
+    // Step 2: Process message with Claude via Bedrock
+    yield* Console.log("Processing with Claude via Bedrock...");
     const response = yield* processMessage(text);
 
     // Step 3: Append cost info to response text

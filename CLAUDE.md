@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TypeScript-based agent project using Effect for functional programming patterns and the Claude Agent SDK for AI interactions. The project includes a Telegram bot with a Hono web server for flexible deployment.
+TypeScript-based agent project using Effect for functional programming patterns and the Anthropic SDK for AI interactions via AWS Bedrock. The project includes a Telegram bot with a Hono web server for flexible deployment.
 
 ## Development Commands
 
@@ -24,10 +24,11 @@ npm run start
 This project requires a `.env` file for AWS Bedrock and Telegram configuration. Environment variables are loaded using Node.js native `--env-file` flag.
 
 Required environment variables:
-- `CLAUDE_CODE_USE_BEDROCK=1` - Enable AWS Bedrock
 - `ANTHROPIC_MODEL` - The Bedrock model ID (e.g., `us.anthropic.claude-sonnet-4-5-20250929-v1:0`)
 - `TELEGRAM_BOT_TOKEN` - Telegram bot token from @BotFather
-- `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` - AWS credentials
+- `AWS_REGION` - AWS region for Bedrock (e.g., `us-west-2`)
+- `AWS_ACCESS_KEY_ID` - AWS access key ID
+- `AWS_SECRET_ACCESS_KEY` - AWS secret access key
 
 Copy `.env.example` to `.env` and configure as needed.
 
@@ -36,14 +37,14 @@ Copy `.env.example` to `.env` and configure as needed.
 ### Technology Stack
 - **TypeScript** with ES2022 target and Node16 module resolution
 - **Effect** - Functional effect system for type-safe async operations
-- **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`) - Uses `unstable_v2_prompt` API for Claude interactions
+- **Anthropic Bedrock SDK** (`@anthropic-ai/bedrock-sdk`) - Official open-source SDK for AWS Bedrock
 - **AWS Bedrock** - Claude API access via AWS infrastructure
 - **Hono** - Fast, lightweight web framework
 - **@hono/node-server** - Node.js adapter for Hono
 
 ### Code Structure
 - `src/server.ts` - Hono web server with webhook endpoint (main entry point)
-  - All Telegram and Claude Agent logic is self-contained in this file
+  - All Telegram and Claude API logic is self-contained in this file
 - All TypeScript code compiles to `dist/` directory
 
 ### Telegram Bot Architecture
@@ -53,7 +54,7 @@ Copy `.env.example` to `.env` and configure as needed.
 User message -> Telegram -> POST /webhook (Hono server)
                               |
                               |- Send typing indicator
-                              |- Call Claude Agent
+                              |- Call Claude via Bedrock
                               |- Send response via Telegram API
                               |- Return 200 OK
 ```
@@ -79,12 +80,34 @@ const program = Effect.gen(function* () {
 Effect.runPromise(program);
 ```
 
-### Claude Agent SDK Integration
+### Anthropic Bedrock SDK Integration
 
-Uses the V2 unstable API:
-- `unstable_v2_prompt(message, options)` - One-shot prompt function
-- Model configuration via `options.model` (reads from `ANTHROPIC_MODEL` env var)
-- Returns `SDKResultMessage` with response text, usage stats, and session info
+Uses the official Anthropic Bedrock SDK for AWS:
+
+```typescript
+import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
+
+// Initialize client
+const anthropic = new AnthropicBedrock({
+  awsRegion: process.env.AWS_REGION,
+  awsAccessKey: process.env.AWS_ACCESS_KEY_ID,
+  awsSecretKey: process.env.AWS_SECRET_ACCESS_KEY,
+});
+
+// Create message
+const message = await anthropic.messages.create({
+  model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  max_tokens: 8192,
+  messages: [{ role: "user", content: "Hello, Claude" }],
+});
+```
+
+Key features:
+- Dedicated SDK for AWS Bedrock with built-in authentication
+- Open-source SDK for better debugging and customization
+- Standard Messages API with full control over parameters
+- Direct access to token usage and response metadata
+- No need for manual AWS request signing
 
 ## Deployment
 
@@ -129,7 +152,7 @@ curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
 ## Important Notes
 
 - The project uses Node.js native `--env-file` support, not the dotenv package
-- Zod version conflict exists between project (v4) and SDK requirement (v3.24.1) - using `--legacy-peer-deps` workaround
 - All scripts use `--env-file=.env` flag to load environment variables
 - Server defaults to port 3000 (configurable via `PORT` env var)
 - Hono provides excellent performance and small bundle size
+- The Anthropic SDK is open-source, allowing for better debugging and customization

@@ -27,7 +27,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.59",
+    "@anthropic-ai/bedrock-sdk": "^0.26.0",
     "@hono/node-server": "^1.19.6",
     "effect": "^3.19.10",
     "hono": "^4.10.7",
