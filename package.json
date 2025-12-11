@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.26.0",
+    "@codesandbox/sdk": "^2.4.2",
     "@effect/opentelemetry": "^0.59.2",
     "@hono/node-server": "^1.19.6",
     "@modelcontextprotocol/sdk": "^1.24.3",
