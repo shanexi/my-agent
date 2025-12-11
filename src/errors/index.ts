@@ -27,3 +27,10 @@ export class MessageProcessingError extends Data.TaggedError(
   chatId: number;
   stack?: string;
 }> {}
+
+export class McpToolError extends Data.TaggedError('McpToolError')<{
+  message: string;
+  toolName: string;
+  toolInput?: Record<string, any>;
+  stack?: string;
+}> {}

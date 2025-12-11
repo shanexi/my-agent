@@ -22,6 +22,7 @@ import {
   ConfigError,
   TelegramApiError,
   ClaudeApiError,
+  McpToolError,
 } from './errors/index.js';
 import type { TelegramUpdate } from './types/telegram.types.js';
 
@@ -117,6 +118,26 @@ app.post('/webhook', async (c) => {
                 .pipe(Effect.catchAll(() => Effect.void));
 
               return { success: false, error: 'ClaudeApiError' };
+            }),
+
+          // MCP Tool error: Tool execution issue
+          McpToolError: (error) =>
+            Effect.gen(function* () {
+              console.error('MCP Tool error:', {
+                message: error.message,
+                toolName: error.toolName,
+                toolInput: error.toolInput,
+                stack: error.stack,
+              });
+
+              yield* telegram
+                .sendMessage(
+                  chatId,
+                  `抱歉，工具执行失败：${error.toolName}。请稍后再试。`
+                )
+                .pipe(Effect.catchAll(() => Effect.void));
+
+              return { success: false, error: 'McpToolError' };
             }),
         }),
         // Catch all other unknown errors
