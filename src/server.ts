@@ -23,6 +23,7 @@ import {
   TelegramApiError,
   ClaudeApiError,
   McpToolError,
+  SandboxError,
 } from './errors/index.js';
 import type { TelegramUpdate } from './types/telegram.types.js';
 
@@ -138,6 +139,36 @@ app.post('/webhook', async (c) => {
                 .pipe(Effect.catchAll(() => Effect.void));
 
               return { success: false, error: 'McpToolError' };
+            }),
+
+          // Sandbox error: CodeSandbox operation issue
+          SandboxError: (error) =>
+            Effect.gen(function* () {
+              console.error('Sandbox error:', {
+                message: error.message,
+                operation: error.operation,
+                stack: error.stack,
+              });
+
+              const operationMessages: Record<string, string> = {
+                resume: '恢复沙箱',
+                connect: '连接沙箱',
+                writeFile: '写入文件',
+                getUrl: '获取预览链接',
+                waitForPort: '等待服务启动',
+              };
+
+              const operationText =
+                operationMessages[error.operation] || error.operation;
+
+              yield* telegram
+                .sendMessage(
+                  chatId,
+                  `抱歉，${operationText}失败。请稍后再试。`
+                )
+                .pipe(Effect.catchAll(() => Effect.void));
+
+              return { success: false, error: 'SandboxError' };
             }),
         }),
         // Catch all other unknown errors

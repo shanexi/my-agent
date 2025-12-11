@@ -18,7 +18,8 @@ export class TelegramServiceImpl {
   sendMessage = Effect.fn('TelegramService.sendMessage')(function* (
     this: TelegramServiceImpl,
     chatId: number,
-    text: string
+    text: string,
+    replyMarkup?: any
   ) {
     yield* Effect.annotateCurrentSpan('chatId', chatId);
     yield* Effect.annotateCurrentSpan('textLength', text.length);
@@ -26,12 +27,17 @@ export class TelegramServiceImpl {
     const botToken = yield* this.config.getTelegramBotToken();
     const url = `${TELEGRAM_API_BASE}/bot${botToken}/sendMessage`;
 
+    const body: any = { chat_id: chatId, text };
+    if (replyMarkup) {
+      body.reply_markup = replyMarkup;
+    }
+
     const response = yield* Effect.tryPromise({
       try: () =>
         fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text }),
+          body: JSON.stringify(body),
         }),
       catch: (e) =>
         new TelegramApiError({
@@ -61,6 +67,25 @@ export class TelegramServiceImpl {
       );
     }
   });
+
+  sendMessageWithButton = Effect.fn('TelegramService.sendMessageWithButton')(
+    function* (
+      this: TelegramServiceImpl,
+      chatId: number,
+      text: string,
+      buttonText: string,
+      buttonUrl: string
+    ) {
+      yield* Effect.annotateCurrentSpan('chatId', chatId);
+      yield* Effect.annotateCurrentSpan('buttonUrl', buttonUrl);
+
+      const replyMarkup = {
+        inline_keyboard: [[{ text: buttonText, url: buttonUrl }]],
+      };
+
+      yield* this.sendMessage(chatId, text, replyMarkup);
+    }
+  );
 
   sendChatAction = Effect.fn('TelegramService.sendChatAction')(function* (
     this: TelegramServiceImpl,

@@ -34,3 +34,9 @@ export class McpToolError extends Data.TaggedError('McpToolError')<{
   toolInput?: Record<string, any>;
   stack?: string;
 }> {}
+
+export class SandboxError extends Data.TaggedError('SandboxError')<{
+  message: string;
+  operation: string;
+  stack?: string;
+}> {}

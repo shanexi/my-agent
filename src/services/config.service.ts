@@ -58,4 +58,16 @@ export class ConfigServiceImpl {
   getPort = Effect.fn('ConfigService.getPort')(function* () {
     return parseInt(process.env.PORT || '3000');
   });
+
+  getCodeSandboxApiKey = Effect.fn('ConfigService.getCodeSandboxApiKey')(
+    function* () {
+      const key = process.env.CSB_API_KEY;
+      if (!key) {
+        yield* Effect.fail(
+          new ConfigError({ message: 'CSB_API_KEY not configured' })
+        );
+      }
+      return key;
+    }
+  );
 }

@@ -31,16 +31,47 @@ export class MessageProcessorServiceImpl {
       const response = yield* this.claude.createMessage(text);
 
       // Step 3: Format response with cost
-      const responseText = response.usage
-        ? response.text +
-          this.cost.formatCostInfo(response.usage, response.modelName)
-        : response.text;
+      const costInfo = response.usage
+        ? this.cost.formatCostInfo(response.usage, response.modelName)
+        : '';
 
-      // Step 4: Send response
-      yield* Console.log(
-        `Sending response to ${chatId}: ${response.text.substring(0, 50)}...`
-      );
-      yield* this.telegram.sendMessage(chatId, responseText);
+      // Step 4: Check if response contains a CodeSandbox preview URL
+      const urlRegex = /https:\/\/[a-zA-Z0-9-]+-\d+\.csb\.app|https:\/\/codesandbox\.io\/[sp]\/[a-zA-Z0-9-]+/g;
+      const urls = response.text.match(urlRegex);
+
+      if (urls && urls.length > 0) {
+        // Extract the first URL
+        const previewUrl = urls[0];
+
+        // Remove URL from text and clean up
+        let cleanedText = response.text.replace(urlRegex, '').trim();
+
+        // Remove common patterns around URLs
+        cleanedText = cleanedText
+          .replace(/🔗\s*\*\*.*?\*\*/g, '') // Remove "🔗 **...**"
+          .replace(/您可以通过以下地址访问应用：?/g, '')
+          .replace(/请点击链接查看应用.*?。?/g, '')
+          .replace(/\n{3,}/g, '\n\n') // Remove excessive newlines
+          .trim();
+
+        const finalText = cleanedText + costInfo;
+
+        yield* Console.log(`Sending response with button: ${previewUrl}`);
+        yield* this.telegram.sendMessageWithButton(
+          chatId,
+          finalText,
+          '🔗 打开预览',
+          previewUrl
+        );
+      } else {
+        // No URL detected, send as normal text
+        const finalText = response.text + costInfo;
+        yield* Console.log(
+          `Sending response to ${chatId}: ${response.text.substring(0, 50)}...`
+        );
+        yield* this.telegram.sendMessage(chatId, finalText);
+      }
+
       yield* Console.log('Message processed successfully');
 
       return { success: true };

@@ -5,9 +5,14 @@
 import { ContainerModule } from 'inversify';
 import { ConfigService, ConfigServiceImpl } from './config.service.js';
 import { TelegramService, TelegramServiceImpl } from './telegram.service.js';
+import {
+  ConversationService,
+  ConversationServiceImpl,
+} from './conversation.service.js';
 import { ClaudeService, ClaudeServiceImpl } from './claude.service.js';
 import { CostService, CostServiceImpl } from './cost.service.js';
 import { McpService, McpServiceImpl } from './mcp.service.js';
+import { SandboxService, SandboxServiceImpl } from './sandbox.service.js';
 import {
   MessageProcessorService,
   MessageProcessorServiceImpl,
@@ -16,9 +21,11 @@ import {
 export const servicesModule = new ContainerModule((bind) => {
   bind(ConfigService).to(ConfigServiceImpl).inSingletonScope();
   bind(TelegramService).to(TelegramServiceImpl).inSingletonScope();
+  bind(ConversationService).to(ConversationServiceImpl).inSingletonScope();
   bind(ClaudeService).to(ClaudeServiceImpl).inSingletonScope();
   bind(CostService).to(CostServiceImpl).inSingletonScope();
   bind(McpService).to(McpServiceImpl).inSingletonScope();
+  bind(SandboxService).to(SandboxServiceImpl).inSingletonScope();
   bind(MessageProcessorService)
     .to(MessageProcessorServiceImpl)
     .inSingletonScope();
