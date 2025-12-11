@@ -1,294 +1,49 @@
 /**
  * Hono Web Server for Telegram Bot
+ * Refactored with InversifyJS + Effect architecture
  */
+import 'reflect-metadata';
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+import { Container } from 'inversify';
+import { Effect } from 'effect';
+import { servicesModule } from './services/index.js';
+import {
+  MessageProcessorService,
+  MessageProcessorServiceImpl,
+} from './services/message-processor.service.js';
+import {
+  TelegramService,
+  TelegramServiceImpl,
+} from './services/telegram.service.js';
+import { ConfigService, ConfigServiceImpl } from './services/config.service.js';
+import {
+  ConfigError,
+  TelegramApiError,
+  ClaudeApiError,
+} from './errors/index.js';
+import type { TelegramUpdate } from './types/telegram.types.js';
 
-import { Hono } from "hono";
-import { serve } from "@hono/node-server";
-import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
-import { Effect, Console, Schedule } from "effect";
+// Create DI container
+const container = new Container();
+container.load(servicesModule);
 
 const app = new Hono();
 
-const TELEGRAM_API_BASE = "https://api.telegram.org";
-
-/**
- * Initialize Anthropic Bedrock client
- */
-const anthropic = new AnthropicBedrock({
-  awsRegion: process.env.AWS_REGION || "us-west-2",
-  awsAccessKey: process.env.AWS_ACCESS_KEY_ID,
-  awsSecretKey: process.env.AWS_SECRET_ACCESS_KEY,
-});
-
-interface TelegramMessage {
-  message_id: number;
-  from?: {
-    id: number;
-    first_name: string;
-    username?: string;
-  };
-  chat: {
-    id: number;
-    type: string;
-  };
-  text?: string;
-  date: number;
-}
-
-interface TelegramUpdate {
-  update_id: number;
-  message?: TelegramMessage;
-}
-
-interface TokenUsage {
-  input_tokens: number;
-  output_tokens: number;
-}
-
-interface ProcessedMessage {
-  text: string;
-  usage?: TokenUsage;
-  modelName: string;
-}
-
-/**
- * Model pricing configuration (AWS Bedrock pricing per 1M tokens)
- */
-interface ModelPricing {
-  input: number;
-  output: number;
-}
-
-const MODEL_PRICING: Record<string, ModelPricing> = {
-  // Claude Sonnet 4.5
-  "us.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.0, output: 15.0 },
-  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
-
-  // Claude Opus 4
-  "us.anthropic.claude-opus-4-20250514-v1:0": { input: 15.0, output: 75.0 },
-  "claude-opus-4-20250514": { input: 15.0, output: 75.0 },
-
-  // Claude Haiku 4
-  "us.anthropic.claude-haiku-4-20250514-v1:0": { input: 0.8, output: 4.0 },
-  "claude-haiku-4-20250514": { input: 0.8, output: 4.0 },
-};
-
-/**
- * Get pricing for a model (defaults to Sonnet 4.5 pricing)
- */
-const getModelPricing = (modelName: string): ModelPricing => {
-  return MODEL_PRICING[modelName] || { input: 3.0, output: 15.0 };
-};
-
-/**
- * Calculate cost based on token usage and model
- */
-const calculateCost = (usage: TokenUsage, modelName: string): number => {
-  const pricing = getModelPricing(modelName);
-  const inputCost = (usage.input_tokens / 1_000_000) * pricing.input;
-  const outputCost = (usage.output_tokens / 1_000_000) * pricing.output;
-  return inputCost + outputCost;
-};
-
-/**
- * Get a short display name for the model
- */
-const getModelDisplayName = (modelName: string): string => {
-  if (modelName.includes("sonnet")) return "Sonnet 4.5";
-  if (modelName.includes("opus")) return "Opus 4";
-  if (modelName.includes("haiku")) return "Haiku 4";
-  return modelName;
-};
-
-/**
- * Format cost information for display (simple version)
- */
-const formatCostInfo = (usage: TokenUsage, modelName: string): string => {
-  const cost = calculateCost(usage, modelName);
-  const pricing = getModelPricing(modelName);
-  const displayName = getModelDisplayName(modelName);
-
-  return `\n\n━━━━━━━━━━━━━━━━
-🤖 ${displayName}
-💰 Cost: $${cost.toFixed(6)}
-📊 Tokens: ${usage.input_tokens.toLocaleString()} → ${usage.output_tokens.toLocaleString()}
-💵 Rate: $${pricing.input}/M in, $${pricing.output}/M out`;
-};
-
-/**
- * Send a message to Telegram chat with timeout and retry logic
- */
-const sendMessage = (chatId: number, text: string) =>
-  Effect.gen(function* () {
-    // Get bot token
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    if (!botToken) {
-      yield* Effect.fail(new Error("TELEGRAM_BOT_TOKEN is not configured"));
-    }
-
-    const url = `${TELEGRAM_API_BASE}/bot${botToken}/sendMessage`;
-
-    // Send request with timeout and retry
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: text,
-          }),
-        }),
-      catch: (error: unknown) => new Error(`Fetch failed: ${error}`),
-    }).pipe(
-      Effect.timeout("10 seconds"),
-      Effect.retry(
-        Schedule.exponential("1 second").pipe(
-          Schedule.compose(Schedule.recurs(2)) // 3 total attempts (1 initial + 2 retries)
-        )
-      ),
-      Effect.tapError((error: unknown) =>
-        Console.error(`Failed to send message: ${error}`)
-      )
-    );
-
-    // Check response status
-    if (!response.ok) {
-      const errorText = yield* Effect.tryPromise(() => response.text());
-      yield* Effect.fail(new Error(`Telegram API error: ${errorText}`));
-    }
-  });
-
-/**
- * Send a chat action (e.g., "typing") to show bot is processing
- */
-const sendChatAction = (chatId: number, action: "typing" = "typing") =>
-  Effect.gen(function* () {
-    // Get bot token
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    if (!botToken) {
-      return; // Silently fail for non-critical action
-    }
-
-    const url = `${TELEGRAM_API_BASE}/bot${botToken}/sendChatAction`;
-
-    // Send request with timeout
-    yield* Effect.tryPromise({
-      try: () =>
-        fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            chat_id: chatId,
-            action: action,
-          }),
-        }),
-      catch: (error: unknown) => new Error(`Failed to send chat action: ${error}`),
-    }).pipe(
-      Effect.timeout("5 seconds"),
-      Effect.catchAll((error: unknown) =>
-        // Silently fail for non-critical action
-        Console.error(`Chat action error: ${error}`).pipe(Effect.as(undefined))
-      )
-    );
-  });
-
-/**
- * Process a message using Claude via Bedrock
- */
-const processMessage = (message: string) =>
-  Effect.gen(function* () {
-    const modelName =
-      process.env.ANTHROPIC_MODEL ||
-      "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
-
-    const result = yield* Effect.tryPromise({
-      try: () =>
-        anthropic.messages.create({
-          model: modelName,
-          max_tokens: 8192,
-          messages: [{ role: "user", content: message }],
-        }),
-      catch: (error: unknown) => {
-        console.error("Claude API error:", error);
-        return new Error("抱歉，处理您的消息时出现了错误。请稍后再试。");
-      },
-    });
-
-    // Extract text from response content
-    const textContent = result.content.find((block) => block.type === "text");
-    const responseText = textContent && "text" in textContent ? textContent.text : "无法生成响应";
-
-    const processedMessage: ProcessedMessage = {
-      text: responseText,
-      modelName: modelName,
-      usage: result.usage
-        ? {
-            input_tokens: result.usage.input_tokens,
-            output_tokens: result.usage.output_tokens,
-          }
-        : undefined,
-    };
-
-    return processedMessage;
-  });
-
-/**
- * Process message and send response
- */
-const processAndRespond = (chatId: number, text: string) =>
-  Effect.gen(function* () {
-    // Step 1: Send typing indicator
-    yield* sendChatAction(chatId, "typing");
-
-    // Step 2: Process message with Claude via Bedrock
-    yield* Console.log("Processing with Claude via Bedrock...");
-    const response = yield* processMessage(text);
-
-    // Step 3: Append cost info to response text
-    const responseText = response.usage
-      ? response.text + formatCostInfo(response.usage, response.modelName)
-      : response.text;
-
-    // Step 4: Send response back to user
-    yield* Console.log(`Sending response to ${chatId}: ${response.text.substring(0, 50)}...`);
-    yield* sendMessage(chatId, responseText);
-
-    yield* Console.log("Message processed successfully");
-  }).pipe(
-    Effect.catchAll((error: unknown) =>
-      Effect.gen(function* () {
-        yield* Console.error("Error in processing:", error);
-
-        // Try to send error message to user
-        yield* sendMessage(chatId, "抱歉，处理您的消息时出现了错误。请稍后再试。").pipe(
-          Effect.catchAll((sendError: unknown) =>
-            Console.error("Failed to send error message:", sendError)
-          )
-        );
-      })
-    )
-  );
-
 // Health check endpoint
-app.get("/", (c) => {
+app.get('/', (c) => {
   return c.json({
-    status: "ok",
-    message: "Telegram bot server is running",
+    status: 'ok',
+    message: 'Telegram bot server is running',
   });
 });
 
 // Telegram webhook endpoint
-app.post("/webhook", async (c) => {
+app.post('/webhook', async (c) => {
   try {
     const update: TelegramUpdate = await c.req.json();
 
-    // Validate update has a message
-    if (!update.message || !update.message.text) {
+    if (!update.message?.text) {
       return c.json({ ok: true });
     }
 
@@ -298,23 +53,122 @@ app.post("/webhook", async (c) => {
 
     console.log(`Received message from ${chatId}: ${text}`);
 
-    // Process message (wait for completion)
-    await Effect.runPromise(processAndRespond(chatId, text));
+    const processor = container.get<MessageProcessorServiceImpl>(
+      MessageProcessorService
+    );
+    const telegram = container.get<TelegramServiceImpl>(TelegramService);
+
+    // Use catchTags for fine-grained error handling
+    await Effect.runPromise(
+      processor.processAndRespond(chatId, text).pipe(
+        Effect.catchTags({
+          // Config error: Server misconfiguration
+          ConfigError: (error) =>
+            Effect.gen(function* () {
+              console.error('Configuration error:', {
+                message: error.message,
+                stack: error.stack,
+              });
+
+              // Send special message for config errors
+              yield* telegram
+                .sendMessage(
+                  chatId,
+                  '抱歉，服务器配置错误。管理员已收到通知。'
+                )
+                .pipe(Effect.catchAll(() => Effect.void));
+
+              // TODO: Send alert to admin
+              return { success: false, error: 'ConfigError' };
+            }),
+
+          // Telegram API error: Network or Telegram service issue
+          TelegramApiError: (error) =>
+            Effect.gen(function* () {
+              console.error('Telegram API error:', {
+                message: error.message,
+                statusCode: error.statusCode,
+                responseBody: error.responseBody,
+                stack: error.stack,
+              });
+
+              // Try to send error message
+              yield* telegram
+                .sendMessage(
+                  chatId,
+                  '抱歉，发送消息时遇到网络问题。请稍后再试。'
+                )
+                .pipe(Effect.catchAll(() => Effect.void));
+
+              return { success: false, error: 'TelegramApiError' };
+            }),
+
+          // Claude API error: AI service issue
+          ClaudeApiError: (error) =>
+            Effect.gen(function* () {
+              console.error('Claude API error:', {
+                message: error.message,
+                stack: error.stack,
+              });
+
+              yield* telegram
+                .sendMessage(chatId, '抱歉，AI 服务暂时不可用。请稍后再试。')
+                .pipe(Effect.catchAll(() => Effect.void));
+
+              return { success: false, error: 'ClaudeApiError' };
+            }),
+        }),
+        // Catch all other unknown errors
+        Effect.catchAll((error: unknown) =>
+          Effect.gen(function* () {
+            const errorType =
+              typeof error === 'object' && error !== null
+                ? (error as any)._tag ||
+                  (error as any).constructor?.name ||
+                  'Unknown'
+                : 'Unknown';
+
+            console.error('Unknown error:', {
+              error,
+              errorType,
+              stack:
+                typeof error === 'object' && error !== null
+                  ? (error as any).stack
+                  : undefined,
+            });
+
+            yield* telegram
+              .sendMessage(chatId, '抱歉，处理您的消息时出现了错误。请稍后再试。')
+              .pipe(Effect.catchAll(() => Effect.void));
+
+            return { success: false, error: 'UnknownError' };
+          })
+        )
+      )
+    );
 
     return c.json({ ok: true });
   } catch (error) {
-    console.error("Webhook error:", error);
+    // Catch non-Effect errors (e.g., JSON parsing failures)
+    console.error('Webhook handler error:', error);
     return c.json({ ok: true });
   }
 });
 
-const port = parseInt(process.env.PORT || "3000");
+// Start server
+const config = container.get<ConfigServiceImpl>(ConfigService);
+Effect.runPromise(
+  Effect.gen(function* () {
+    const port = yield* config.getPort();
 
-console.log(`Starting server on port ${port}...`);
+    serve({
+      fetch: app.fetch,
+      port,
+    });
 
-serve({
-  fetch: app.fetch,
-  port,
+    console.log(`Server is running on http://localhost:${port}`);
+  })
+).catch((error: unknown) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });
-
-console.log(`Server is running on http://localhost:${port}`);
