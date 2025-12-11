@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+## 重要
+
+1. 创建 github issue 只需要 diff 不需要列出完成代码
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview

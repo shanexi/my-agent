@@ -828,6 +828,7 @@ for await (const message of q) {
 ### Q3: 如何查看底层的 API 调用?
 
 **A:** Agent SDK 抽象了底层细节，但你可以:
+
 - 查看 `SDKResultMessage` 中的 `usage` 和 `modelUsage` 字段了解 token 使用
 - 使用 `stderr` 选项捕获调试输出
 - 使用钩子系统监控工具调用
