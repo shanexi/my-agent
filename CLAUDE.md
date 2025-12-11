@@ -2,7 +2,7 @@
 
 ## 重要
 
-1. 创建 github issue 只需要 diff 不需要列出完成代码
+1. 创建 github issue 只需要 diff，前后3行，不需要列出完成代码 
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -34,6 +34,13 @@ Required environment variables:
 - `AWS_ACCESS_KEY_ID` - AWS access key ID
 - `AWS_SECRET_ACCESS_KEY` - AWS secret access key
 
+Optional environment variables (for distributed tracing):
+- `HONEYCOMB_API_KEY` - Honeycomb API key for distributed tracing
+- `HONEYCOMB_DATASET` - Honeycomb dataset name (default: "my-agent")
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - Generic OTEL endpoint (alternative to Honeycomb)
+
+If neither Honeycomb nor OTEL endpoint is configured, tracing will be disabled.
+
 Copy `.env.example` to `.env` and configure as needed.
 
 ## Architecture
@@ -46,11 +53,16 @@ Copy `.env.example` to `.env` and configure as needed.
 - **AWS Bedrock** - Claude API access via AWS infrastructure
 - **Hono** - Fast, lightweight web framework
 - **@hono/node-server** - Node.js adapter for Hono
+- **OpenTelemetry** - Distributed tracing with Honeycomb integration (optional)
 
 ### Code Structure
 - `src/server.ts` - Hono web server with webhook endpoint (main entry point)
   - Initializes InversifyJS container and handles HTTP routes
   - Top-level error handling with `Effect.catchTags`
+  - Integrates tracing layer via `Effect.provide(TracingLive)`
+- `src/tracing.layer.ts` - OpenTelemetry tracing configuration
+  - Honeycomb or generic OTEL endpoint support
+  - Auto-disables if no tracing config provided
 - `src/services/` - Service layer with dependency injection
   - `config.service.ts` - Environment variable management
   - `telegram.service.ts` - Telegram API interactions

@@ -6,7 +6,8 @@ import 'reflect-metadata';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { Container } from 'inversify';
-import { Effect } from 'effect';
+import { Effect, Layer } from 'effect';
+import { TracingLive } from './tracing.layer.js';
 import { servicesModule } from './services/index.js';
 import {
   MessageProcessorService,
@@ -143,7 +144,9 @@ app.post('/webhook', async (c) => {
 
             return { success: false, error: 'UnknownError' };
           })
-        )
+        ),
+        // Provide tracing layer for webhook requests
+        Effect.provide(TracingLive)
       )
     );
 
@@ -157,17 +160,21 @@ app.post('/webhook', async (c) => {
 
 // Start server
 const config = container.get<ConfigServiceImpl>(ConfigService);
+
+const program = Effect.gen(function* () {
+  const port = yield* config.getPort();
+
+  serve({
+    fetch: app.fetch,
+    port,
+  });
+
+  console.log(`Server is running on http://localhost:${port}`);
+});
+
+// Run with tracing layer
 Effect.runPromise(
-  Effect.gen(function* () {
-    const port = yield* config.getPort();
-
-    serve({
-      fetch: app.fetch,
-      port,
-    });
-
-    console.log(`Server is running on http://localhost:${port}`);
-  })
+  program.pipe(Effect.provide(TracingLive))
 ).catch((error: unknown) => {
   console.error('Failed to start server:', error);
   process.exit(1);
