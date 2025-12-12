@@ -55,12 +55,22 @@ export class ConfigServiceImpl {
     return secret;
   });
 
-  getAllAwsConfig = Effect.fn('ConfigService.getAllAwsConfig')(function* (
-    this: ConfigServiceImpl
-  ) {
-    const awsRegion = yield* this.getAwsRegion();
-    const awsAccessKey = yield* this.getAwsAccessKey();
-    const awsSecretKey = yield* this.getAwsSecretKey();
+  getAllAwsConfig = Effect.fn('ConfigService.getAllAwsConfig')(function* () {
+    const awsRegion = process.env.AWS_REGION || 'us-west-2';
+
+    const awsAccessKey = process.env.AWS_ACCESS_KEY_ID;
+    if (!awsAccessKey) {
+      yield* Effect.fail(
+        new ConfigError({ message: 'AWS_ACCESS_KEY_ID not configured' })
+      );
+    }
+
+    const awsSecretKey = process.env.AWS_SECRET_ACCESS_KEY;
+    if (!awsSecretKey) {
+      yield* Effect.fail(
+        new ConfigError({ message: 'AWS_SECRET_ACCESS_KEY not configured' })
+      );
+    }
 
     return { awsRegion, awsAccessKey, awsSecretKey };
   });

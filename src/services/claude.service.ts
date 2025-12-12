@@ -11,7 +11,7 @@ import type {
   MessageParam,
 } from '@anthropic-ai/sdk/resources/messages.js';
 import { ConfigService, ConfigServiceImpl } from './config.service.js';
-import { McpService, McpServiceImpl } from './mcp.service.js';
+import { McpService, McpServiceImpl, type McpTool } from './mcp.service.js';
 import { ConversationService, ConversationServiceImpl } from './conversation.service.js';
 import { ClaudeApiError, InterruptedError } from '../errors/index.js';
 import type { ProcessedMessage } from '../types/telegram.types.js';
@@ -48,58 +48,54 @@ export class ClaudeServiceImpl {
     return this.anthropic;
   });
 
-  private initialApiCall = Effect.fn('ClaudeService.initialApiCall')(
-    function* (
-      this: ClaudeServiceImpl,
-      client: AnthropicBedrock,
-      modelName: string,
-      messages: MessageParam[],
-      tools: any[]
-    ) {
-      yield* Effect.annotateCurrentSpan('callType', 'initial');
-      yield* Effect.annotateCurrentSpan('messageCount', messages.length);
-      yield* Effect.annotateCurrentSpan('toolCount', tools.length);
+  private callApi = Effect.fn('ClaudeService.callApi')(function* (
+    this: ClaudeServiceImpl,
+    client: AnthropicBedrock,
+    modelName: string,
+    messages: MessageParam[],
+    tools: McpTool[]
+  ) {
+    yield* Effect.annotateCurrentSpan('messageCount', messages.length);
+    yield* Effect.annotateCurrentSpan('toolCount', tools.length);
 
-      const result: Message = yield* Effect.tryPromise({
-        try: (signal) =>
-          client.messages.create(
-            {
-              model: modelName,
-              max_tokens: 8192,
-              messages: messages,
-              tools: tools,
-            },
-            {
-              signal,
-            }
-          ),
-        catch: (e) => {
-          // 检查是否是 abort 错误
-          if (e instanceof Error && e.name === 'AbortError') {
-            return new InterruptedError({
-              message: 'Request interrupted by user',
-            });
+    const result: Message = yield* Effect.tryPromise({
+      try: (signal) =>
+        client.messages.create(
+          {
+            model: modelName,
+            max_tokens: 8192,
+            messages,
+            tools,
+          },
+          {
+            signal,
           }
-          return new ClaudeApiError({
-            message: `Claude API error: ${e}`,
-            stack: e instanceof Error ? e.stack : undefined,
+        ),
+      catch: (e) => {
+        if (e instanceof Error && e.name === 'AbortError') {
+          return new InterruptedError({
+            message: 'Request interrupted by user',
           });
-        },
-      });
+        }
+        return new ClaudeApiError({
+          message: `Claude API error: ${e}`,
+          stack: e instanceof Error ? e.stack : undefined,
+        });
+      },
+    });
 
-      yield* Effect.annotateCurrentSpan('stopReason', result.stop_reason);
-      yield* Effect.annotateCurrentSpan(
-        'inputTokens',
-        result.usage?.input_tokens || 0
-      );
-      yield* Effect.annotateCurrentSpan(
-        'outputTokens',
-        result.usage?.output_tokens || 0
-      );
+    yield* Effect.annotateCurrentSpan('stopReason', result.stop_reason);
+    yield* Effect.annotateCurrentSpan(
+      'inputTokens',
+      result.usage?.input_tokens || 0
+    );
+    yield* Effect.annotateCurrentSpan(
+      'outputTokens',
+      result.usage?.output_tokens || 0
+    );
 
-      return result;
-    }
-  );
+    return result;
+  });
 
 
   private handleToolUse = Effect.fn('ClaudeService.handleToolUse')(function* (
@@ -169,7 +165,7 @@ export class ClaudeServiceImpl {
 
     // 3. Initial API call with full history
     const fullHistory = [...history, userMessage];
-    let result = yield* this.initialApiCall(client, modelName, fullHistory, tools);
+    let result = yield* this.callApi(client, modelName, fullHistory, tools);
     yield* Console.log(
       `📥 Initial response | stop_reason: ${result.stop_reason} | content blocks: ${result.content.length}`
     );
@@ -225,31 +221,7 @@ export class ClaudeServiceImpl {
         `📚 Updated history: ${updatedHistory.length} messages (after tool call)`
       );
 
-      result = yield* Effect.tryPromise({
-        try: (signal) =>
-          client.messages.create(
-            {
-              model: modelName,
-              max_tokens: 8192,
-              messages: updatedHistory,
-              tools: tools,
-            },
-            {
-              signal,
-            }
-          ),
-        catch: (e) => {
-          if (e instanceof Error && e.name === 'AbortError') {
-            return new InterruptedError({
-              message: 'Request interrupted by user',
-            });
-          }
-          return new ClaudeApiError({
-            message: `Claude API error: ${e}`,
-            stack: e instanceof Error ? e.stack : undefined,
-          });
-        },
-      });
+      result = yield* this.callApi(client, modelName, updatedHistory, tools);
 
       yield* Console.log(
         `📥 Tool result response | stop_reason: ${result.stop_reason} | content blocks: ${result.content.length}`
