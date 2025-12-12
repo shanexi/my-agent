@@ -3,7 +3,7 @@
  * Orchestrates the message processing flow
  */
 import { injectable, inject } from 'inversify';
-import { Effect, Console, Fiber, Cause } from 'effect';
+import { Effect, Console, Fiber, Cause, Exit } from 'effect';
 import type { Fiber as FiberType } from 'effect';
 import { TelegramService, TelegramServiceImpl } from './telegram.service.js';
 import { ClaudeService, ClaudeServiceImpl } from './claude.service.js';
@@ -47,49 +47,28 @@ export class MessageProcessorServiceImpl {
       );
       this.activeFibers.set(messageId, fiber);
 
-      // 等待 Fiber 完成，捕获中断并转换成 InterruptedError
-      yield* Fiber.join(fiber).pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            this.activeFibers.delete(messageId);
+      // 等待 Fiber 完成，检查是否中断
+      const exitResult = yield* Fiber.await(fiber);
+      this.activeFibers.delete(messageId);
+
+      // 检查是否被中断
+      if (Exit.isFailure(exitResult) && Cause.isInterruptedOnly(exitResult.cause)) {
+        yield* Console.log(`⚠️  Request interrupted: ${messageId}`);
+        return yield* Effect.fail(
+          new InterruptedError({
+            message: 'Request interrupted by user',
+            chatId,
+            statusMessageId: statusMsg.message_id,
           })
-        ),
-        Effect.catchAllCause((cause) => {
-          // 检查是否是中断（转换成 InterruptedError 向上传播）
-          if (Cause.isInterruptedOnly(cause)) {
-            return this.handleInterruptedCause(
-              chatId,
-              statusMsg.message_id,
-              messageId
-            );
-          }
-          // 其他错误：继续传播
-          return Effect.failCause(cause);
-        })
-      );
+        );
+      }
+
+      // 如果是其他错误，让它自然传播
+      if (Exit.isFailure(exitResult)) {
+        return yield* Effect.failCause(exitResult.cause);
+      }
     }
   );
-
-  // 处理中断的清理逻辑
-  private handleInterruptedCause = Effect.fn(
-    'MessageProcessor.handleInterruptedCause'
-  )(function* (
-    this: MessageProcessorServiceImpl,
-    chatId: number,
-    statusMessageId: number,
-    messageId: string
-  ) {
-    yield* Console.log(`⚠️  Request interrupted: ${messageId}`);
-
-    // 返回 InterruptedError 给上层统一处理
-    return yield* Effect.fail(
-      new InterruptedError({
-        message: `Request interrupted by user`,
-        chatId,
-        statusMessageId,
-      })
-    );
-  });
 
   // 实际处理逻辑（不需要 signal 参数）
   private doProcess = Effect.fn('MessageProcessor.doProcess')(function* (

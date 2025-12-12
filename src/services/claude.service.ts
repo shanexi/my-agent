@@ -72,11 +72,6 @@ export class ClaudeServiceImpl {
           }
         ),
       catch: (e) => {
-        if (e instanceof Error && e.name === 'AbortError') {
-          return new InterruptedError({
-            message: 'Request interrupted by user',
-          });
-        }
         return new ClaudeApiError({
           message: `Claude API error: ${e}`,
           stack: e instanceof Error ? e.stack : undefined,
