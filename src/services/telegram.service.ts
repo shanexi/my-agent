@@ -6,6 +6,7 @@ import { injectable, inject } from 'inversify';
 import { Effect, Schedule } from 'effect';
 import { ConfigService, ConfigServiceImpl } from './config.service.js';
 import { TelegramApiError } from '../errors/index.js';
+import type { TelegramInlineKeyboardMarkup, TelegramMessageResult } from '../types/telegram.types.js';
 
 export const TelegramService = Symbol.for('TelegramService');
 
@@ -22,7 +23,7 @@ export class TelegramServiceImpl {
       method: string,
       body: Record<string, unknown>,
       timeoutSeconds: number = 10
-    ): Generator<any, Response, any> {
+    ) {
       const botToken = yield* this.config.getTelegramBotToken();
       const url = `${TELEGRAM_API_BASE}/bot${botToken}/${method}`;
 
@@ -67,7 +68,7 @@ export class TelegramServiceImpl {
     this: TelegramServiceImpl,
     chatId: number,
     text: string,
-    replyMarkup?: any
+    replyMarkup?: TelegramInlineKeyboardMarkup
   ) {
     yield* Effect.annotateCurrentSpan('chatId', chatId);
     yield* Effect.annotateCurrentSpan('textLength', text.length);
@@ -139,7 +140,7 @@ export class TelegramServiceImpl {
     };
 
     const response = yield* this.callTelegramApi('sendMessage', body);
-    const result = yield* Effect.tryPromise<any>(() => response.json());
+    const result = yield* Effect.tryPromise(() => response.json() as Promise<TelegramMessageResult>);
     return result.result; // 返回消息详情，包括 message_id
   });
 
@@ -148,7 +149,7 @@ export class TelegramServiceImpl {
     chatId: number,
     messageId: number,
     text: string,
-    replyMarkup?: any
+    replyMarkup?: TelegramInlineKeyboardMarkup
   ) {
     yield* Effect.annotateCurrentSpan('chatId', chatId);
     yield* Effect.annotateCurrentSpan('messageId', messageId);

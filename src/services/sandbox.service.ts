@@ -158,7 +158,7 @@ export class SandboxServiceImpl {
         catch: () => [],
       });
 
-      const port5173 = ports.find((p: any) => p.port === 5173);
+      const port5173 = ports.find((p) => p.port === 5173);
       if (port5173) {
         return {
           preview_url: `https://${port5173.host}`,

@@ -31,7 +31,7 @@ export class MessageProcessingError extends Data.TaggedError(
 export class McpToolError extends Data.TaggedError('McpToolError')<{
   message: string;
   toolName: string;
-  toolInput?: Record<string, any>;
+  toolInput?: Record<string, unknown>;
   stack?: string;
 }> {}
 

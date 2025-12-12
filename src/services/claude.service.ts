@@ -124,7 +124,7 @@ export class ClaudeServiceImpl {
 
     const toolResult = yield* this.mcp.executeTool(
       toolUseBlock.name,
-      toolUseBlock.input as Record<string, any>
+      toolUseBlock.input as Record<string, unknown>
     );
 
     const toolResultStr = JSON.stringify(toolResult);

@@ -44,3 +44,18 @@ export interface ProcessedMessage {
   usage?: TokenUsage;
   modelName: string;
 }
+
+export interface TelegramInlineKeyboardButton {
+  text: string;
+  url?: string;
+  callback_data?: string;
+}
+
+export interface TelegramInlineKeyboardMarkup {
+  inline_keyboard: TelegramInlineKeyboardButton[][];
+}
+
+export interface TelegramMessageResult {
+  ok: boolean;
+  result: TelegramMessage;
+}

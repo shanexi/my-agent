@@ -14,7 +14,7 @@ export interface McpTool {
   description: string;
   input_schema: {
     type: 'object';
-    properties?: Record<string, any>;
+    properties?: Record<string, unknown>;
     required?: string[];
   };
 }
@@ -86,7 +86,7 @@ export class McpServiceImpl {
   executeTool = Effect.fn('McpService.executeTool')(function* (
     this: McpServiceImpl,
     toolName: string,
-    toolInput: Record<string, any>
+    toolInput: Record<string, unknown>
   ) {
     yield* Effect.annotateCurrentSpan('toolName', toolName);
 
@@ -96,11 +96,11 @@ export class McpServiceImpl {
     }
 
     if (toolName === 'sandbox_resume') {
-      return yield* this.sandbox.resumeSandbox(toolInput.sandbox_id);
+      return yield* this.sandbox.resumeSandbox(toolInput.sandbox_id as string);
     }
 
     if (toolName === 'sandbox_write_file') {
-      return yield* this.sandbox.writeFile(toolInput.path, toolInput.content);
+      return yield* this.sandbox.writeFile(toolInput.path as string, toolInput.content as string);
     }
 
     if (toolName === 'sandbox_get_url') {

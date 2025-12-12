@@ -60,7 +60,7 @@ app.post('/webhook', async (c) => {
           // Interrupted error: User clicked interrupt button
           InterruptedError: (error) =>
             Effect.gen(function* () {
-              console.log('Request interrupted:', {
+              yield* Console.log('Request interrupted:', {
                 message: error.message,
                 chatId: error.chatId,
               });
@@ -80,7 +80,7 @@ app.post('/webhook', async (c) => {
           // Config error: Server misconfiguration
           ConfigError: (error) =>
             Effect.gen(function* () {
-              console.error('Configuration error:', {
+              yield* Console.error('Configuration error:', {
                 message: error.message,
                 stack: error.stack,
               });
@@ -103,7 +103,7 @@ app.post('/webhook', async (c) => {
           // Telegram API error: Network or Telegram service issue
           TelegramApiError: (error) =>
             Effect.gen(function* () {
-              console.error('Telegram API error:', {
+              yield* Console.error('Telegram API error:', {
                 message: error.message,
                 statusCode: error.statusCode,
                 responseBody: error.responseBody,
@@ -126,7 +126,7 @@ app.post('/webhook', async (c) => {
           // Claude API error: AI service issue
           ClaudeApiError: (error) =>
             Effect.gen(function* () {
-              console.error('Claude API error:', {
+              yield* Console.error('Claude API error:', {
                 message: error.message,
                 stack: error.stack,
               });
@@ -143,7 +143,7 @@ app.post('/webhook', async (c) => {
           // MCP Tool error: Tool execution issue
           McpToolError: (error) =>
             Effect.gen(function* () {
-              console.error('MCP Tool error:', {
+              yield* Console.error('MCP Tool error:', {
                 message: error.message,
                 toolName: error.toolName,
                 toolInput: error.toolInput,
@@ -165,7 +165,7 @@ app.post('/webhook', async (c) => {
           // Sandbox error: CodeSandbox operation issue
           SandboxError: (error) =>
             Effect.gen(function* () {
-              console.error('Sandbox error:', {
+              yield* Console.error('Sandbox error:', {
                 message: error.message,
                 operation: error.operation,
                 stack: error.stack,
@@ -197,21 +197,7 @@ app.post('/webhook', async (c) => {
         // Catch all other unknown errors
         Effect.catchAll((error: unknown) =>
           Effect.gen(function* () {
-            const errorType =
-              typeof error === 'object' && error !== null
-                ? (error as any)._tag ||
-                  (error as any).constructor?.name ||
-                  'Unknown'
-                : 'Unknown';
-
-            console.error('Unknown error:', {
-              error,
-              errorType,
-              stack:
-                typeof error === 'object' && error !== null
-                  ? (error as any).stack
-                  : undefined,
-            });
+            yield* Console.error('Unknown error:', error);
 
             yield* telegram
               .sendMessage(chatId, '抱歉，处理您的消息时出现了错误。请稍后再试。')
@@ -253,7 +239,7 @@ app.post('/webhook', async (c) => {
             Effect.catchTags({
               TelegramApiError: (error) =>
                 Effect.gen(function* () {
-                  console.error('Failed to answer callback query:', {
+                  yield* Console.error('Failed to answer callback query:', {
                     message: error.message,
                     statusCode: error.statusCode,
                   });
