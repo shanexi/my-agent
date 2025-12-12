@@ -6,7 +6,7 @@ import 'reflect-metadata';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { Container } from 'inversify';
-import { Effect } from 'effect';
+import { Effect, Console } from 'effect';
 import { TracingLive } from './tracing.layer.js';
 import { servicesModule } from './services/index.js';
 import {
@@ -62,10 +62,19 @@ app.post('/webhook', async (c) => {
             Effect.gen(function* () {
               console.log('Request interrupted:', {
                 message: error.message,
-                chatId,
+                chatId: error.chatId,
               });
-              // 清理逻辑已在 message-processor 中完成
-              return { success: false, error: 'InterruptedError' };
+
+              // Edit status message to show interruption (if available)
+              if (error.chatId && error.statusMessageId) {
+                yield* telegram
+                  .editMessage(error.chatId, error.statusMessageId, '❌ 操作已中断')
+                  .pipe(
+                    Effect.catchAll((e) =>
+                      Console.error(`Failed to edit status message: ${e}`)
+                    )
+                  );
+              }
             }),
 
           // Config error: Server misconfiguration
@@ -82,10 +91,13 @@ app.post('/webhook', async (c) => {
                   chatId,
                   '抱歉，服务器配置错误。管理员已收到通知。'
                 )
-                .pipe(Effect.catchAll(() => Effect.void));
+                .pipe(
+                  Effect.catchAll((e) =>
+                    Console.error(`Failed to send config error message: ${e}`)
+                  )
+                );
 
               // TODO: Send alert to admin
-              return { success: false, error: 'ConfigError' };
             }),
 
           // Telegram API error: Network or Telegram service issue
@@ -104,9 +116,11 @@ app.post('/webhook', async (c) => {
                   chatId,
                   '抱歉，发送消息时遇到网络问题。请稍后再试。'
                 )
-                .pipe(Effect.catchAll(() => Effect.void));
-
-              return { success: false, error: 'TelegramApiError' };
+                .pipe(
+                  Effect.catchAll((e) =>
+                    Console.error(`Failed to send telegram error message: ${e}`)
+                  )
+                );
             }),
 
           // Claude API error: AI service issue
@@ -119,9 +133,11 @@ app.post('/webhook', async (c) => {
 
               yield* telegram
                 .sendMessage(chatId, '抱歉，AI 服务暂时不可用。请稍后再试。')
-                .pipe(Effect.catchAll(() => Effect.void));
-
-              return { success: false, error: 'ClaudeApiError' };
+                .pipe(
+                  Effect.catchAll((e) =>
+                    Console.error(`Failed to send claude error message: ${e}`)
+                  )
+                );
             }),
 
           // MCP Tool error: Tool execution issue
@@ -139,9 +155,11 @@ app.post('/webhook', async (c) => {
                   chatId,
                   `抱歉，工具执行失败：${error.toolName}。请稍后再试。`
                 )
-                .pipe(Effect.catchAll(() => Effect.void));
-
-              return { success: false, error: 'McpToolError' };
+                .pipe(
+                  Effect.catchAll((e) =>
+                    Console.error(`Failed to send tool error message: ${e}`)
+                  )
+                );
             }),
 
           // Sandbox error: CodeSandbox operation issue
@@ -169,9 +187,11 @@ app.post('/webhook', async (c) => {
                   chatId,
                   `抱歉，${operationText}失败。请稍后再试。`
                 )
-                .pipe(Effect.catchAll(() => Effect.void));
-
-              return { success: false, error: 'SandboxError' };
+                .pipe(
+                  Effect.catchAll((e) =>
+                    Console.error(`Failed to send sandbox error message: ${e}`)
+                  )
+                );
             }),
         }),
         // Catch all other unknown errors
@@ -195,9 +215,11 @@ app.post('/webhook', async (c) => {
 
             yield* telegram
               .sendMessage(chatId, '抱歉，处理您的消息时出现了错误。请稍后再试。')
-              .pipe(Effect.catchAll(() => Effect.void));
-
-            return { success: false, error: 'UnknownError' };
+              .pipe(
+                Effect.catchAll((e) =>
+                  Console.error(`Failed to send unknown error message: ${e}`)
+                )
+              );
           })
         ),
         // Provide tracing layer for webhook requests
@@ -228,10 +250,19 @@ app.post('/webhook', async (c) => {
 
         await Effect.runPromise(
           processor.handleInterruptCallback(messageId, callbackQuery.id).pipe(
-            Effect.catchAll((error) => {
-              console.error('Interrupt error:', error);
-              return Effect.succeed({ success: false, error: 'unknown' });
+            Effect.catchTags({
+              TelegramApiError: (error) =>
+                Effect.gen(function* () {
+                  console.error('Failed to answer callback query:', {
+                    message: error.message,
+                    statusCode: error.statusCode,
+                  });
+                  // Non-critical: callback query answer failed, but interrupt succeeded
+                }),
             }),
+            Effect.catchAll((error) =>
+              Console.error(`Interrupt callback error: ${error}`)
+            ),
             Effect.provide(TracingLive)
           )
         );

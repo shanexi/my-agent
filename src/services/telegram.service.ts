@@ -113,9 +113,7 @@ export class TelegramServiceImpl {
         }),
     }).pipe(
       Effect.timeout('5 seconds'),
-      Effect.retry(Schedule.recurs(1)), // Retry once for transient network issues
-      Effect.tapError((error) => Console.error(`Chat action error: ${error}`)),
-      Effect.catchAll(() => Effect.void)
+      Effect.retry(Schedule.recurs(1)) // Retry once for transient network issues
     );
   });
 

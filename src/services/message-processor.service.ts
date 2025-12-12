@@ -16,10 +16,8 @@ export const MessageProcessorService = Symbol.for('MessageProcessorService');
 export class MessageProcessorServiceImpl {
   // 只存储 Fiber（不需要 AbortController）
   // 使用 unknown 作为错误类型，因为 fork 的 Effect 可能包含多种错误
-  private activeFibers: Map<
-    string,
-    FiberType.RuntimeFiber<{ success: boolean }, unknown>
-  > = new Map();
+  private activeFibers: Map<string, FiberType.RuntimeFiber<void, unknown>> =
+    new Map();
 
   constructor(
     @inject(TelegramService) private telegram: TelegramServiceImpl,
@@ -50,7 +48,7 @@ export class MessageProcessorServiceImpl {
       this.activeFibers.set(messageId, fiber);
 
       // 等待 Fiber 完成，捕获中断并转换成 InterruptedError
-      return yield* Fiber.join(fiber).pipe(
+      yield* Fiber.join(fiber).pipe(
         Effect.ensuring(
           Effect.sync(() => {
             this.activeFibers.delete(messageId);
@@ -67,12 +65,7 @@ export class MessageProcessorServiceImpl {
           }
           // 其他错误：继续传播
           return Effect.failCause(cause);
-        }),
-        // 添加 statusMessageId 到成功结果
-        Effect.map((result) => ({
-          ...result,
-          statusMessageId: statusMsg.message_id,
-        }))
+        })
       );
     }
   );
@@ -88,15 +81,12 @@ export class MessageProcessorServiceImpl {
   ) {
     yield* Console.log(`⚠️  Request interrupted: ${messageId}`);
 
-    // 编辑状态消息（中断后的清理逻辑）
-    yield* this.telegram
-      .editMessage(chatId, statusMessageId, '❌ 操作已中断')
-      .pipe(Effect.catchAll(() => Effect.void));
-
     // 返回 InterruptedError 给上层统一处理
     return yield* Effect.fail(
       new InterruptedError({
         message: `Request interrupted by user`,
+        chatId,
+        statusMessageId,
       })
     );
   });
@@ -160,8 +150,6 @@ export class MessageProcessorServiceImpl {
     }
 
     yield* Console.log('Message processed successfully');
-
-    return { success: true };
   });
 
   // 处理中断请求（从 webhook callback_query 调用）
@@ -182,12 +170,10 @@ export class MessageProcessorServiceImpl {
       yield* Fiber.interrupt(fiber);
 
       yield* Effect.annotateCurrentSpan('interruptSuccess', true);
-      return { success: true };
     } else {
       yield* Console.log(`⚠️  No active operation found: ${messageId}`);
       yield* Effect.annotateCurrentSpan('fiberFound', false);
       yield* Effect.annotateCurrentSpan('reason', 'no_active_operation');
-      return { success: false, reason: 'no_active_operation' };
     }
   });
 
@@ -199,12 +185,8 @@ export class MessageProcessorServiceImpl {
 
       yield* this.handleInterrupt(messageId);
 
-      // answerCallbackQuery 是非关键操作，失败不影响整体流程
-      yield* this.telegram.answerCallbackQuery(callbackQueryId).pipe(
-        Effect.catchAll((error) =>
-          Console.error(`Failed to answer callback query: ${error}`)
-        )
-      );
+      // Answer callback query
+      yield* this.telegram.answerCallbackQuery(callbackQueryId);
     }
   );
 }

@@ -43,4 +43,6 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
 
 export class InterruptedError extends Data.TaggedError('InterruptedError')<{
   message: string;
+  chatId?: number;
+  statusMessageId?: number;
 }> {}
