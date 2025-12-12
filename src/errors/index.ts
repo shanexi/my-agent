@@ -40,3 +40,7 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
   operation: string;
   stack?: string;
 }> {}
+
+export class InterruptedError extends Data.TaggedError('InterruptedError')<{
+  message: string;
+}> {}

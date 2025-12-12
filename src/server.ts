@@ -6,7 +6,7 @@ import 'reflect-metadata';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { Container } from 'inversify';
-import { Effect, Layer } from 'effect';
+import { Effect } from 'effect';
 import { TracingLive } from './tracing.layer.js';
 import { servicesModule } from './services/index.js';
 import {
@@ -18,13 +18,6 @@ import {
   TelegramServiceImpl,
 } from './services/telegram.service.js';
 import { ConfigService, ConfigServiceImpl } from './services/config.service.js';
-import {
-  ConfigError,
-  TelegramApiError,
-  ClaudeApiError,
-  McpToolError,
-  SandboxError,
-} from './errors/index.js';
 import type { TelegramUpdate } from './types/telegram.types.js';
 
 // Create DI container
@@ -46,25 +39,35 @@ app.post('/webhook', async (c) => {
   try {
     const update: TelegramUpdate = await c.req.json();
 
-    if (!update.message?.text) {
-      return c.json({ ok: true });
-    }
+    // Handle regular messages
+    if (update.message?.text) {
+      const message = update.message;
+      const chatId = message.chat.id;
+      const text = message.text!; // Already validated in if condition
 
-    const message = update.message;
-    const chatId = message.chat.id;
-    const text = message.text!; // Already validated above
+      console.log(`Received message from ${chatId}: ${text}`);
 
-    console.log(`Received message from ${chatId}: ${text}`);
+      const processor = container.get<MessageProcessorServiceImpl>(
+        MessageProcessorService
+      );
+      const telegram = container.get<TelegramServiceImpl>(TelegramService);
 
-    const processor = container.get<MessageProcessorServiceImpl>(
-      MessageProcessorService
-    );
-    const telegram = container.get<TelegramServiceImpl>(TelegramService);
-
-    // Use catchTags for fine-grained error handling
-    await Effect.runPromise(
-      processor.processAndRespond(chatId, text).pipe(
+      // Fire-and-forget: 立即返回，让 Effect 在后台运行
+      // 这样 callback_query webhook 可以立即被处理
+      Effect.runPromise(
+        processor.processAndRespond(chatId, text).pipe(
         Effect.catchTags({
+          // Interrupted error: User clicked interrupt button
+          InterruptedError: (error) =>
+            Effect.gen(function* () {
+              console.log('Request interrupted:', {
+                message: error.message,
+                chatId,
+              });
+              // 清理逻辑已在 message-processor 中完成
+              return { success: false, error: 'InterruptedError' };
+            }),
+
           // Config error: Server misconfiguration
           ConfigError: (error) =>
             Effect.gen(function* () {
@@ -200,7 +203,42 @@ app.post('/webhook', async (c) => {
         // Provide tracing layer for webhook requests
         Effect.provide(TracingLive)
       )
-    );
+    ).catch((error) => {
+        // 捕获 unhandled promise rejection
+        console.error('Unhandled message processing error:', error);
+      });
+
+      return c.json({ ok: true });
+    }
+
+    // Handle callback_query (inline button clicks)
+    if (update.callback_query) {
+      const callbackQuery = update.callback_query;
+      const chatId = callbackQuery.message.chat.id;
+      const data = callbackQuery.data;
+
+      console.log(`Received callback_query from ${chatId}: ${data}`);
+
+      if (data.startsWith('interrupt:')) {
+        const messageId = data.slice('interrupt:'.length);
+
+        const processor = container.get<MessageProcessorServiceImpl>(
+          MessageProcessorService
+        );
+
+        await Effect.runPromise(
+          processor.handleInterruptCallback(messageId, callbackQuery.id).pipe(
+            Effect.catchAll((error) => {
+              console.error('Interrupt error:', error);
+              return Effect.succeed({ success: false, error: 'unknown' });
+            }),
+            Effect.provide(TracingLive)
+          )
+        );
+      }
+
+      return c.json({ ok: true });
+    }
 
     return c.json({ ok: true });
   } catch (error) {

@@ -13,7 +13,7 @@ import type {
 import { ConfigService, ConfigServiceImpl } from './config.service.js';
 import { McpService, McpServiceImpl } from './mcp.service.js';
 import { ConversationService, ConversationServiceImpl } from './conversation.service.js';
-import { ClaudeApiError } from '../errors/index.js';
+import { ClaudeApiError, InterruptedError } from '../errors/index.js';
 import type { ProcessedMessage } from '../types/telegram.types.js';
 
 export const ClaudeService = Symbol.for('ClaudeService');
@@ -62,18 +62,30 @@ export class ClaudeServiceImpl {
       yield* Effect.annotateCurrentSpan('toolCount', tools.length);
 
       const result: Message = yield* Effect.tryPromise({
-        try: () =>
-          client.messages.create({
-            model: modelName,
-            max_tokens: 8192,
-            messages: messages,
-            tools: tools,
-          }),
-        catch: (e) =>
-          new ClaudeApiError({
+        try: (signal) =>
+          client.messages.create(
+            {
+              model: modelName,
+              max_tokens: 8192,
+              messages: messages,
+              tools: tools,
+            },
+            {
+              signal,
+            }
+          ),
+        catch: (e) => {
+          // 检查是否是 abort 错误
+          if (e instanceof Error && e.name === 'AbortError') {
+            return new InterruptedError({
+              message: 'Request interrupted by user',
+            });
+          }
+          return new ClaudeApiError({
             message: `Claude API error: ${e}`,
             stack: e instanceof Error ? e.stack : undefined,
-          }),
+          });
+        },
       });
 
       yield* Effect.annotateCurrentSpan('stopReason', result.stop_reason);
@@ -215,18 +227,29 @@ export class ClaudeServiceImpl {
       );
 
       result = yield* Effect.tryPromise({
-        try: () =>
-          client.messages.create({
-            model: modelName,
-            max_tokens: 8192,
-            messages: updatedHistory,
-            tools: tools,
-          }),
-        catch: (e) =>
-          new ClaudeApiError({
+        try: (signal) =>
+          client.messages.create(
+            {
+              model: modelName,
+              max_tokens: 8192,
+              messages: updatedHistory,
+              tools: tools,
+            },
+            {
+              signal,
+            }
+          ),
+        catch: (e) => {
+          if (e instanceof Error && e.name === 'AbortError') {
+            return new InterruptedError({
+              message: 'Request interrupted by user',
+            });
+          }
+          return new ClaudeApiError({
             message: `Claude API error: ${e}`,
             stack: e instanceof Error ? e.stack : undefined,
-          }),
+          });
+        },
       });
 
       yield* Console.log(

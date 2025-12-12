@@ -3,6 +3,7 @@
 ## 重要
 
 1. 创建 github issue 只需要 diff，前后3行，不需要列出完成代码 
+2. 禁止使用 any
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
