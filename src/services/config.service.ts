@@ -55,6 +55,16 @@ export class ConfigServiceImpl {
     return secret;
   });
 
+  getAllAwsConfig = Effect.fn('ConfigService.getAllAwsConfig')(function* (
+    this: ConfigServiceImpl
+  ) {
+    const awsRegion = yield* this.getAwsRegion();
+    const awsAccessKey = yield* this.getAwsAccessKey();
+    const awsSecretKey = yield* this.getAwsSecretKey();
+
+    return { awsRegion, awsAccessKey, awsSecretKey };
+  });
+
   getPort = Effect.fn('ConfigService.getPort')(function* () {
     return parseInt(process.env.PORT || '3000');
   });

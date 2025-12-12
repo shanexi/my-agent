@@ -36,9 +36,8 @@ export class ClaudeServiceImpl {
     this: ClaudeServiceImpl
   ) {
     if (!this.anthropic) {
-      const awsRegion = yield* this.config.getAwsRegion();
-      const awsAccessKey = yield* this.config.getAwsAccessKey();
-      const awsSecretKey = yield* this.config.getAwsSecretKey();
+      const { awsRegion, awsAccessKey, awsSecretKey } =
+        yield* this.config.getAllAwsConfig();
 
       this.anthropic = new AnthropicBedrock({
         awsRegion,
