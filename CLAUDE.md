@@ -2,9 +2,7 @@
 
 ## 重要
 
-1. 创建 github issue 只需要 diff，前后3行，不需要列出完成代码 
-2. 禁止使用 any
-3. type cast 和显式类型着重回复下
+创建 github issue 只需要 diff，前后3行，不需要列出完成代码 
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -12,50 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TypeScript-based agent project using Effect for functional programming patterns and the Anthropic SDK for AI interactions via AWS Bedrock. The project includes a Telegram bot with a Hono web server for flexible deployment.
 
-## Development Commands
-
-```bash
-# Development (with hot reload)
-npm run dev
-
-# Build TypeScript to JavaScript
-npm run build
-
-# Run compiled code
-npm run start
-```
-
-## Environment Configuration
-
-This project requires a `.env` file for AWS Bedrock and Telegram configuration. Environment variables are loaded using Node.js native `--env-file` flag.
-
-Required environment variables:
-- `ANTHROPIC_MODEL` - The Bedrock model ID (e.g., `us.anthropic.claude-sonnet-4-5-20250929-v1:0`)
-- `TELEGRAM_BOT_TOKEN` - Telegram bot token from @BotFather
-- `AWS_REGION` - AWS region for Bedrock (e.g., `us-west-2`)
-- `AWS_ACCESS_KEY_ID` - AWS access key ID
-- `AWS_SECRET_ACCESS_KEY` - AWS secret access key
-
-Optional environment variables (for distributed tracing):
-- `HONEYCOMB_API_KEY` - Honeycomb API key for distributed tracing
-- `HONEYCOMB_DATASET` - Honeycomb dataset name (default: "my-agent")
-- `OTEL_EXPORTER_OTLP_ENDPOINT` - Generic OTEL endpoint (alternative to Honeycomb)
-
-If neither Honeycomb nor OTEL endpoint is configured, tracing will be disabled.
-
-Copy `.env.example` to `.env` and configure as needed.
-
 ## Architecture
-
-### Technology Stack
-- **TypeScript** with ES2022 target and Node16 module resolution
-- **Effect** - Functional effect system for type-safe async operations
-- **InversifyJS** - Dependency injection framework for better testability and modularity
-- **Anthropic Bedrock SDK** (`@anthropic-ai/bedrock-sdk`) - Official open-source SDK for AWS Bedrock
-- **AWS Bedrock** - Claude API access via AWS infrastructure
-- **Hono** - Fast, lightweight web framework
-- **@hono/node-server** - Node.js adapter for Hono
-- **OpenTelemetry** - Distributed tracing with Honeycomb integration (optional)
 
 ### Code Structure
 - `src/server.ts` - Hono web server with webhook endpoint (main entry point)
@@ -160,35 +115,6 @@ const program = Effect.gen(function* () {
 Effect.runPromise(program);
 ```
 
-### Anthropic Bedrock SDK Integration
-
-Uses the official Anthropic Bedrock SDK for AWS:
-
-```typescript
-import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
-
-// Initialize client
-const anthropic = new AnthropicBedrock({
-  awsRegion: process.env.AWS_REGION,
-  awsAccessKey: process.env.AWS_ACCESS_KEY_ID,
-  awsSecretKey: process.env.AWS_SECRET_ACCESS_KEY,
-});
-
-// Create message
-const message = await anthropic.messages.create({
-  model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-  max_tokens: 8192,
-  messages: [{ role: "user", content: "Hello, Claude" }],
-});
-```
-
-Key features:
-- Dedicated SDK for AWS Bedrock with built-in authentication
-- Open-source SDK for better debugging and customization
-- Standard Messages API with full control over parameters
-- Direct access to token usage and response metadata
-- No need for manual AWS request signing
-
 ### Error Handling
 
 Custom errors are defined using `Data.TaggedError` for type-safe error handling:
@@ -237,34 +163,10 @@ await Effect.runPromise(
 
 ## Deployment
 
-This is a standard Node.js web server that can be deployed anywhere:
-
-### Railway
-```bash
-railway login
-railway init
-railway up
-```
-
-### Fly.io
-```bash
-fly launch
-fly secrets set TELEGRAM_BOT_TOKEN=...
-# Set other secrets
-```
-
 ### Traditional VPS
 ```bash
-npm run build
-pm2 start npm --name "my-agent" -- start
+./deploy.sh
 ```
-
-### Local Testing with ngrok
-```bash
-ngrok http 3000
-# Set Telegram webhook to ngrok URL
-```
-
 ### Setting up Telegram Webhook
 
 After deploying, set the webhook URL:
@@ -275,10 +177,173 @@ curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
   -d '{"url": "https://your-domain.com/webhook"}'
 ```
 
-## Important Notes
+## Architecture Preferences and Refactoring Lessons
 
-- The project uses Node.js native `--env-file` support, not the dotenv package
-- All scripts use `--env-file=.env` flag to load environment variables
-- Server defaults to port 3000 (configurable via `PORT` env var)
-- Hono provides excellent performance and small bundle size
-- The Anthropic SDK is open-source, allowing for better debugging and customization
+### Eliminate Code Duplication
+
+**Bad**:
+```typescript
+// API call logic duplicated in two places
+const result1 = yield* Effect.tryPromise({
+  try: (signal) => client.messages.create(..., { signal }),
+  catch: (e) => { /* error handling */ }
+});
+
+// Same logic repeated elsewhere
+const result2 = yield* Effect.tryPromise({
+  try: (signal) => client.messages.create(..., { signal }),
+  catch: (e) => { /* error handling */ }
+});
+```
+
+**Good**:
+```typescript
+// Extract unified method
+private callApi = Effect.fn('ClaudeService.callApi')(function* (
+  this: ClaudeServiceImpl,
+  client: AnthropicBedrock,
+  modelName: string,
+  messages: MessageParam[],
+  tools: unknown[]
+) {
+  const result = yield* Effect.tryPromise({ /* unified logic */ });
+  yield* Effect.annotateCurrentSpan('stopReason', result.stop_reason);
+  return result;
+});
+
+// Call from both locations
+const result = yield* this.callApi(client, modelName, messages, tools);
+```
+
+**Key insight**: Extract common patterns early to maintain consistency.
+
+### Clear Separation of Concerns
+
+**Bad**:
+```typescript
+// Service layer handles both business logic AND user feedback
+yield* this.doProcess(chatId, text).pipe(
+  Effect.catchAll((error) => {
+    // Service shouldn't directly handle UI feedback
+    yield* this.telegram.sendMessage(chatId, 'Error occurred');
+    return Effect.void;
+  })
+);
+```
+
+**Good**:
+```typescript
+// Service layer: Business logic only, errors propagate upward
+yield* this.doProcess(chatId, text); // Let errors bubble up
+
+// Server layer: Unified error handling with user feedback
+Effect.catchTags({
+  ConfigError: (error) => Effect.gen(function* () {
+    yield* telegram.sendMessage(error.chatId, '服务器配置错误');
+  }),
+  InterruptedError: (error) => Effect.gen(function* () {
+    yield* telegram.editMessage(error.chatId, error.statusMessageId, '❌ 操作已中断');
+  })
+})
+```
+
+**Key insight**: Service = business logic, Server = user interaction.
+
+### Avoid Silent Failures
+
+**Bad**:
+```typescript
+// Errors swallowed silently, no observability
+yield* this.telegram.sendChatAction(chatId, 'typing').pipe(
+  Effect.catchAll(() => Effect.void) // ❌ Silent failure
+);
+```
+
+**Good**:
+```typescript
+// Log all failures for observability
+yield* this.telegram.sendChatAction(chatId, 'typing').pipe(
+  Effect.catchAll((e) => Console.error(`Failed to send typing action: ${e}`))
+);
+```
+
+**Key insight**: Every failure should leave a trace for debugging.
+
+### Strict Type Safety
+
+**Rules**:
+1. ❌ Never use `any` type
+2. ✅ Use `unknown` for truly unknown types, then narrow with type guards
+3. ✅ Use explicit type assertions (`as`) when needed, with comments explaining why
+4. ✅ Define explicit types for external API responses
+
+**Example**:
+```typescript
+// Bad
+function handleData(data: any) { /* ... */ }
+
+// Good
+function handleData(data: unknown) {
+  if (typeof data === 'object' && data !== null && 'id' in data) {
+    const id = (data as { id: string }).id; // Type assertion with clear intent
+    // ...
+  }
+}
+```
+
+### Use Effect Console in Effect.gen
+
+**Bad**:
+```typescript
+Effect.gen(function* () {
+  console.log('Starting process'); // ❌ Regular console
+  // ...
+});
+```
+
+**Good**:
+```typescript
+Effect.gen(function* () {
+  yield* Console.log('Starting process'); // ✅ Effect Console
+  // ...
+});
+```
+
+**Benefits**:
+- Better integration with OpenTelemetry tracing
+- Testable (can be mocked in tests)
+- Composable with other Effects
+
+### Imperative vs Functional Style
+
+Sometimes imperative code is clearer than functional composition:
+
+**Functional (harder to read)**:
+```typescript
+yield* Fiber.join(fiber).pipe(
+  Effect.ensuring(Effect.sync(() => this.activeFibers.delete(messageId))),
+  Effect.catchAllCause((cause) => {
+    if (Cause.isInterruptedOnly(cause)) {
+      return this.handleInterruptedCause(chatId, statusMessageId, messageId);
+    }
+    return Effect.failCause(cause);
+  })
+);
+```
+
+**Imperative (clearer)**:
+```typescript
+const exitResult = yield* Fiber.await(fiber);
+this.activeFibers.delete(messageId);
+
+if (Exit.isFailure(exitResult) && Cause.isInterruptedOnly(exitResult.cause)) {
+  yield* Console.log(`⚠️  Request interrupted: ${messageId}`);
+  return yield* Effect.fail(new InterruptedError({ /* ... */ }));
+}
+
+if (Exit.isFailure(exitResult)) {
+  return yield* Effect.failCause(exitResult.cause);
+}
+```
+
+**Key insight**: Use the style that best communicates intent. Generator functions already provide imperative sequencing.
