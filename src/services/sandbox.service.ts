@@ -173,4 +173,61 @@ export class SandboxServiceImpl {
       preview_url: this.activeClient.editorUrl,
     };
   });
+
+  /**
+   * Get dev-server logs
+   */
+  getDevServerLogs = Effect.fn('SandboxService.getDevServerLogs')(function* (
+    this: SandboxServiceImpl,
+    lines: number = 100
+  ) {
+    const taskId = 'dev-server';
+    yield* Effect.annotateCurrentSpan('taskId', taskId);
+    yield* Effect.annotateCurrentSpan('lines', lines);
+
+    if (!this.activeClient) {
+      return yield* Effect.fail(
+        new SandboxError({
+          message: 'No active sandbox. Please resume a sandbox first.',
+          operation: 'getDevServerLogs',
+        })
+      );
+    }
+
+    const task = yield* Effect.tryPromise({
+      try: () => this.activeClient!.tasks.get(taskId),
+      catch: (e) =>
+        new SandboxError({
+          message: `Failed to get task: ${e}`,
+          operation: 'getDevServerLogs',
+        }),
+    });
+
+    if (!task) {
+      return yield* Effect.fail(
+        new SandboxError({
+          message: `Task not found: ${taskId}. Make sure .codesandbox/tasks.json has a "dev-server" task.`,
+          operation: 'getDevServerLogs',
+        })
+      );
+    }
+
+    // Open the task shell to get output
+    const fullOutput = yield* Effect.tryPromise({
+      try: () => (task as { open: () => Promise<string> }).open(),
+      catch: (e) =>
+        new SandboxError({
+          message: `Failed to get task output: ${e}`,
+          operation: 'getDevServerLogs',
+        }),
+    });
+
+    // Get last N lines
+    const logLines = fullOutput.split('\n');
+    const lastNLines = logLines.slice(-lines).join('\n');
+
+    yield* Console.log(`✅ Got ${lines} lines of dev-server logs`);
+
+    return { logs: lastNLines };
+  });
 }

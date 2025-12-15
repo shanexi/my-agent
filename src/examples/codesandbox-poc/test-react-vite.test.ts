@@ -17,7 +17,7 @@ describe.sequential("React Vite Dev Server Test", () => {
   let client: SandboxClient;
 
   // 复用已有的 React Vite sandbox，避免 rate limit
-  const SHARED_SANDBOX_ID = "mqfvqg";
+  const SHARED_SANDBOX_ID = "fwslpp";
 
   beforeAll(async () => {
     const apiKey = process.env.CSB_API_KEY;

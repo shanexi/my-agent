@@ -38,13 +38,13 @@ export class McpServiceImpl {
       {
         name: 'sandbox_resume',
         description:
-          'Resume an existing CodeSandbox and set it as the active sandbox for this chat. Use sandbox ID "mqfvqg" for testing.',
+          'Resume an existing CodeSandbox and set it as the active sandbox for this chat. Use sandbox ID "fwslpp" for testing.',
         input_schema: {
           type: 'object',
           properties: {
             sandbox_id: {
               type: 'string',
-              description: 'The sandbox ID to resume (e.g., "mqfvqg")',
+              description: 'The sandbox ID to resume (e.g., "fwslpp")',
             },
           },
           required: ['sandbox_id'],
@@ -79,6 +79,21 @@ export class McpServiceImpl {
           required: [],
         },
       },
+      {
+        name: 'sandbox_get_dev_server_logs',
+        description:
+          'Get the last N lines of dev-server output to check for compilation errors. The dev-server should already be running. Use this after writing files to check if there are any errors.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            lines: {
+              type: 'number',
+              description: 'Number of lines to retrieve (default: 100)',
+            },
+          },
+          required: [],
+        },
+      },
     ];
     return tools;
   });
@@ -105,6 +120,12 @@ export class McpServiceImpl {
 
     if (toolName === 'sandbox_get_url') {
       return yield* this.sandbox.getUrl();
+    }
+
+    if (toolName === 'sandbox_get_dev_server_logs') {
+      return yield* this.sandbox.getDevServerLogs(
+        (toolInput.lines as number) || 100
+      );
     }
 
     return yield* Effect.fail(

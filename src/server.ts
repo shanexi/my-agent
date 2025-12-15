@@ -52,6 +52,9 @@ app.post('/webhook', async (c) => {
       );
       const telegram = container.get<TelegramServiceImpl>(TelegramService);
 
+      // Store original text for retry functionality
+      const originalText = text;
+
       // Fire-and-forget: 立即返回，让 Effect 在后台运行
       // 这样 callback_query webhook 可以立即被处理
       Effect.runPromise(
@@ -110,11 +113,12 @@ app.post('/webhook', async (c) => {
                 stack: error.stack,
               });
 
-              // Try to send error message
+              // Send error message with retry button
               yield* telegram
-                .sendMessage(
+                .sendMessageWithRetryButton(
                   chatId,
-                  '抱歉，发送消息时遇到网络问题。请稍后再试。'
+                  '抱歉，发送消息时遇到网络问题。请稍后再试。',
+                  originalText
                 )
                 .pipe(
                   Effect.catchAll((e) =>
@@ -252,6 +256,58 @@ app.post('/webhook', async (c) => {
             Effect.provide(TracingLive)
           )
         );
+      }
+
+      if (data.startsWith('retry:')) {
+        const parts = data.slice('retry:'.length).split(':');
+        const retryChatId = parseInt(parts[0]);
+        const encodedText = parts[1];
+        const originalText = Buffer.from(encodedText, 'base64').toString('utf-8');
+
+        const processor = container.get<MessageProcessorServiceImpl>(
+          MessageProcessorService
+        );
+        const telegram = container.get<TelegramServiceImpl>(TelegramService);
+
+        console.log(`Retrying message for ${retryChatId}: ${originalText}`);
+
+        // Answer callback query first
+        await Effect.runPromise(
+          telegram.answerCallbackQuery(callbackQuery.id).pipe(
+            Effect.catchAll((e) =>
+              Console.error(`Failed to answer callback query: ${e}`)
+            ),
+            Effect.provide(TracingLive)
+          )
+        );
+
+        // Edit the error message to show retry status
+        await Effect.runPromise(
+          telegram
+            .editMessage(
+              chatId,
+              callbackQuery.message.message_id,
+              '✅ 已重试，正在处理...'
+            )
+            .pipe(
+              Effect.catchAll((e) =>
+                Console.error(`Failed to edit message: ${e}`)
+              ),
+              Effect.provide(TracingLive)
+            )
+        );
+
+        // Process the original message again
+        Effect.runPromise(
+          processor.processAndRespond(retryChatId, originalText).pipe(
+            Effect.catchAll((error) =>
+              Console.error(`Retry processing error: ${error}`)
+            ),
+            Effect.provide(TracingLive)
+          )
+        ).catch((error) => {
+          console.error('Unhandled retry error:', error);
+        });
       }
 
       return c.json({ ok: true });

@@ -144,6 +144,39 @@ export class TelegramServiceImpl {
     return result.result; // 返回消息详情，包括 message_id
   });
 
+  sendMessageWithRetryButton = Effect.fn(
+    'TelegramService.sendMessageWithRetryButton'
+  )(function* (
+    this: TelegramServiceImpl,
+    chatId: number,
+    text: string,
+    originalText: string
+  ) {
+    yield* Effect.annotateCurrentSpan('chatId', chatId);
+    yield* Effect.annotateCurrentSpan('originalText', originalText);
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          {
+            text: '🔄 重试',
+            callback_data: `retry:${chatId}:${Buffer.from(originalText).toString('base64')}`,
+          },
+        ],
+      ],
+    };
+
+    const body = {
+      chat_id: chatId,
+      text,
+      reply_markup: replyMarkup,
+    };
+
+    const response = yield* this.callTelegramApi('sendMessage', body);
+    const result = yield* Effect.tryPromise(() => response.json() as Promise<TelegramMessageResult>);
+    return result.result;
+  });
+
   editMessage = Effect.fn('TelegramService.editMessage')(function* (
     this: TelegramServiceImpl,
     chatId: number,
