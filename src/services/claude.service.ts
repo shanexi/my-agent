@@ -179,13 +179,15 @@ export class ClaudeServiceImpl {
         `🔄 Tool use loop iteration ${toolUseIteration}/${MAX_TOOL_ITERATIONS}`
       );
 
-      const toolUseBlock = result.content.find(
+      const toolUseBlocks = result.content.filter(
         (b: ContentBlock) => b.type === 'tool_use'
       );
-      if (!toolUseBlock || toolUseBlock.type !== 'tool_use') {
+      if (toolUseBlocks.length === 0) {
         yield* Console.log('⚠️  No tool_use block found, breaking loop');
         break;
       }
+
+      yield* Console.log(`🔧 Processing ${toolUseBlocks.length} tool calls`);
 
       // Save assistant message (with tool_use)
       const assistantMessage: MessageParam = {
@@ -194,19 +196,28 @@ export class ClaudeServiceImpl {
       };
       yield* this.conversation.addMessage(assistantMessage);
 
-      // Execute tool and get result
-      const { toolResult } = yield* this.handleToolUse(toolUseBlock);
+      // Execute all tools and collect results
+      const toolResultContents: Array<{
+        type: 'tool_result';
+        tool_use_id: string;
+        content: string;
+      }> = [];
 
-      // Save tool_result message
+      for (const toolUseBlock of toolUseBlocks) {
+        if (toolUseBlock.type !== 'tool_use') continue;
+
+        const { toolResult } = yield* this.handleToolUse(toolUseBlock);
+        toolResultContents.push({
+          type: 'tool_result',
+          tool_use_id: toolUseBlock.id,
+          content: JSON.stringify(toolResult),
+        });
+      }
+
+      // Save all tool_results in a single message
       const toolResultMessage: MessageParam = {
         role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: toolUseBlock.id,
-            content: JSON.stringify(toolResult),
-          },
-        ],
+        content: toolResultContents,
       };
       yield* this.conversation.addMessage(toolResultMessage);
 

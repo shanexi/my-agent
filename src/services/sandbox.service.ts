@@ -230,4 +230,283 @@ export class SandboxServiceImpl {
 
     return { logs: lastNLines };
   });
+
+  /**
+   * Read a file from the active sandbox
+   */
+  readFile = Effect.fn('SandboxService.readFile')(function* (
+    this: SandboxServiceImpl,
+    path: string
+  ) {
+    yield* Effect.annotateCurrentSpan('path', path);
+
+    if (!this.activeClient) {
+      return yield* Effect.fail(
+        new SandboxError({
+          message: 'No active sandbox. Please resume a sandbox first.',
+          operation: 'readFile',
+        })
+      );
+    }
+
+    const content = yield* Effect.tryPromise({
+      try: () => this.activeClient!.fs.readTextFile(path),
+      catch: (e) =>
+        new SandboxError({
+          message: `Failed to read file: ${e}`,
+          operation: 'readFile',
+        }),
+    });
+
+    yield* Console.log(`✅ File read: ${path}`);
+
+    return { path, content };
+  });
+
+  /**
+   * Search for a pattern in files within the active sandbox
+   */
+  grep = Effect.fn('SandboxService.grep')(function* (
+    this: SandboxServiceImpl,
+    pattern: string,
+    path: string = '.',
+    options: { caseInsensitive?: boolean; maxResults?: number } = {}
+  ) {
+    yield* Effect.annotateCurrentSpan('pattern', pattern);
+    yield* Effect.annotateCurrentSpan('path', path);
+
+    if (!this.activeClient) {
+      return yield* Effect.fail(
+        new SandboxError({
+          message: 'No active sandbox. Please resume a sandbox first.',
+          operation: 'grep',
+        })
+      );
+    }
+
+    const flags = options.caseInsensitive ? '-rni' : '-rn';
+    const maxResults = options.maxResults ?? 50;
+    const command = `grep ${flags} "${pattern.replace(/"/g, '\\"')}" ${path} | head -n ${maxResults}`;
+
+    const output = yield* Effect.tryPromise({
+      try: () => this.activeClient!.commands.run(command),
+      catch: (e) =>
+        new SandboxError({
+          message: `Failed to grep: ${e}`,
+          operation: 'grep',
+        }),
+    });
+
+    yield* Console.log(`✅ Grep completed for pattern: ${pattern}`);
+
+    return { pattern, path, matches: output };
+  });
+
+  /**
+   * List files in a directory
+   */
+  listFiles = Effect.fn('SandboxService.listFiles')(function* (
+    this: SandboxServiceImpl,
+    path: string = '.',
+    options: { recursive?: boolean } = {}
+  ) {
+    yield* Effect.annotateCurrentSpan('path', path);
+    yield* Effect.annotateCurrentSpan('recursive', options.recursive ?? false);
+
+    if (!this.activeClient) {
+      return yield* Effect.fail(
+        new SandboxError({
+          message: 'No active sandbox. Please resume a sandbox first.',
+          operation: 'listFiles',
+        })
+      );
+    }
+
+    const entries = yield* Effect.tryPromise({
+      try: () => this.activeClient!.fs.readdir(path),
+      catch: (e) =>
+        new SandboxError({
+          message: `Failed to list files: ${e}`,
+          operation: 'listFiles',
+        }),
+    });
+
+    const ignoreDirs = new Set([
+      'node_modules',
+      '.git',
+      'dist',
+      'build',
+      '.next',
+      '.cache',
+      'coverage',
+      '.turbo',
+      '.nuxt',
+      '.output',
+    ]);
+
+    if (options.recursive) {
+      const allEntries: Array<{ name: string; type: string; path: string }> = [];
+
+      const processEntries = async (
+        basePath: string,
+        items: Array<{ name: string; type: string }>
+      ) => {
+        for (const item of items) {
+          if (ignoreDirs.has(item.name)) continue;
+
+          const fullPath = basePath === '.' ? item.name : `${basePath}/${item.name}`;
+          allEntries.push({ name: item.name, type: item.type, path: fullPath });
+
+          if (item.type === 'directory') {
+            const subEntries = await this.activeClient!.fs.readdir(fullPath);
+            await processEntries(fullPath, subEntries);
+          }
+        }
+      };
+
+      yield* Effect.tryPromise({
+        try: () => processEntries(path, entries),
+        catch: (e) =>
+          new SandboxError({
+            message: `Failed to list files recursively: ${e}`,
+            operation: 'listFiles',
+          }),
+      });
+
+      yield* Console.log(`✅ Listed ${allEntries.length} files recursively in: ${path}`);
+      return { path, entries: allEntries };
+    }
+
+    yield* Console.log(`✅ Listed ${entries.length} files in: ${path}`);
+    return {
+      path,
+      entries: entries.map((e) => ({ name: e.name, type: e.type, path: `${path}/${e.name}` })),
+    };
+  });
+
+  /**
+   * Run a command in the sandbox (bash)
+   */
+  runCommand = Effect.fn('SandboxService.runCommand')(function* (
+    this: SandboxServiceImpl,
+    command: string,
+    options: { cwd?: string; timeout?: number } = {}
+  ) {
+    yield* Effect.annotateCurrentSpan('command', command);
+    if (options.cwd) yield* Effect.annotateCurrentSpan('cwd', options.cwd);
+
+    if (!this.activeClient) {
+      return yield* Effect.fail(
+        new SandboxError({
+          message: 'No active sandbox. Please resume a sandbox first.',
+          operation: 'runCommand',
+        })
+      );
+    }
+
+    const output = yield* Effect.tryPromise({
+      try: () => this.activeClient!.commands.run(command, { cwd: options.cwd }),
+      catch: (e) =>
+        new SandboxError({
+          message: `Failed to run command: ${e}`,
+          operation: 'runCommand',
+        }),
+    });
+
+    yield* Console.log(`✅ Command executed: ${command}`);
+
+    return { command, output };
+  });
+
+  /**
+   * Edit a file by replacing old content with new content
+   */
+  editFile = Effect.fn('SandboxService.editFile')(function* (
+    this: SandboxServiceImpl,
+    path: string,
+    oldContent: string,
+    newContent: string
+  ) {
+    yield* Effect.annotateCurrentSpan('path', path);
+
+    if (!this.activeClient) {
+      return yield* Effect.fail(
+        new SandboxError({
+          message: 'No active sandbox. Please resume a sandbox first.',
+          operation: 'editFile',
+        })
+      );
+    }
+
+    const fileContent = yield* Effect.tryPromise({
+      try: () => this.activeClient!.fs.readTextFile(path),
+      catch: (e) =>
+        new SandboxError({
+          message: `Failed to read file for editing: ${e}`,
+          operation: 'editFile',
+        }),
+    });
+
+    if (!fileContent.includes(oldContent)) {
+      return yield* Effect.fail(
+        new SandboxError({
+          message: `old_content not found in file: ${path}`,
+          operation: 'editFile',
+        })
+      );
+    }
+
+    const updatedContent = fileContent.replace(oldContent, newContent);
+
+    yield* Effect.tryPromise({
+      try: () => this.activeClient!.fs.writeTextFile(path, updatedContent),
+      catch: (e) =>
+        new SandboxError({
+          message: `Failed to write edited file: ${e}`,
+          operation: 'editFile',
+        }),
+    });
+
+    yield* Console.log(`✅ File edited: ${path}`);
+
+    return { success: true, path };
+  });
+
+  /**
+   * Find files matching a glob pattern
+   */
+  glob = Effect.fn('SandboxService.glob')(function* (
+    this: SandboxServiceImpl,
+    pattern: string,
+    path: string = '.'
+  ) {
+    yield* Effect.annotateCurrentSpan('pattern', pattern);
+    yield* Effect.annotateCurrentSpan('path', path);
+
+    if (!this.activeClient) {
+      return yield* Effect.fail(
+        new SandboxError({
+          message: 'No active sandbox. Please resume a sandbox first.',
+          operation: 'glob',
+        })
+      );
+    }
+
+    const command = `find ${path} -type f -name "${pattern.replace(/"/g, '\\"')}" 2>/dev/null | head -n 100`;
+
+    const output = yield* Effect.tryPromise({
+      try: () => this.activeClient!.commands.run(command),
+      catch: (e) =>
+        new SandboxError({
+          message: `Failed to glob: ${e}`,
+          operation: 'glob',
+        }),
+    });
+
+    const files = output.trim().split('\n').filter(Boolean);
+
+    yield* Console.log(`✅ Glob found ${files.length} files matching: ${pattern}`);
+
+    return { pattern, path, files };
+  });
 }
